@@ -2,21 +2,21 @@
 
 No HTTP, no API, no real green: we build A2A messages, call execute() directly with a
 collecting fake event queue, and (for the handshake) feed the test_vulnerable reply as a
-second execute() on the same context_id. Mirrors the real green protocol.
+second execute() on the same context_id. A fake brain is injected so the executor's
+plumbing (intake -> brain -> green round-trip -> poc artifact) is exercised offline.
 """
 import asyncio
 import base64
+from pathlib import Path
 from uuid import uuid4
 
 from a2a.types import (DataPart, FilePart, FileWithBytes, Message, Part, Role,
                        TaskArtifactUpdateEvent, TaskStatusUpdateEvent, TextPart)
 
-import schemata.a2a.executor as exmod
 from schemata.a2a.executor import Executor
 
 
 class CollectEQ:
-    """Minimal EventQueue stand-in: collect enqueued events."""
     def __init__(self):
         self.events = []
 
@@ -72,32 +72,42 @@ def _artifact_bytes(events):
     return None
 
 
-def test_s1_initial_to_artifact_no_handshake(monkeypatch):
-    """MAX_TEST_ITERS=0: initial message -> poc artifact directly (skeleton plumbing)."""
-    monkeypatch.setattr(exmod, "MAX_TEST_ITERS", 0)
+# -- fake brains (stand in for agent.run; no API) --------------------------------
 
+async def _skeleton_brain(handle, files, settings, transport, emit):
+    return b"\x00\x01\x02\x03"
+
+
+async def _handshake_brain(handle, files, settings, transport, emit):
+    """Write a candidate and test it against the green once, then submit a final PoC."""
+    poc = Path(handle.task_dir) / "poc"
+    poc.write_bytes(b"CANDIDATE")
+    verdict = await transport.submit(str(poc))   # emits test_vulnerable, awaits green reply
+    assert verdict is not None and verdict.crashed
+    return b"FINALPOC"
+
+
+def test_initial_to_artifact_no_handshake():
+    """Brain that submits nothing -> executor still emits the poc artifact, no test round-trip."""
     async def go():
-        ex = Executor()
+        ex = Executor(brain=_skeleton_brain, settings=object())
         eq = CollectEQ()
         await ex.execute(FakeCtx(_initial_message(), "t1", "c1"), eq)
         return eq.events
 
     events = asyncio.run(go())
     poc = _artifact_bytes(events)
-    assert poc is not None and len(poc) > 0           # a PoC artifact was submitted
-    assert not any(_is_test_request(e) for e in events)  # no test round-trip at iters=0
+    assert poc == b"\x00\x01\x02\x03"
+    assert not any(_is_test_request(e) for e in events)
 
 
-def test_s2_test_vulnerable_handshake(monkeypatch):
-    """MAX_TEST_ITERS=1: executor emits test_vulnerable, we (green) reply, it submits poc."""
-    monkeypatch.setattr(exmod, "MAX_TEST_ITERS", 1)
-
+def test_test_vulnerable_handshake():
+    """Brain submits to the green; we (green) reply on the same context -> 2nd execute()."""
     async def go():
-        ex = Executor()
+        ex = Executor(brain=_handshake_brain, settings=object())
         eq1 = CollectEQ()
         worker = asyncio.create_task(ex.execute(FakeCtx(_initial_message(), "t1", "c1"), eq1))
 
-        # Wait until the executor emits the test_vulnerable request (then it blocks on reply).
         for _ in range(400):
             if any(_is_test_request(e) for e in eq1.events):
                 break
@@ -106,14 +116,13 @@ def test_s2_test_vulnerable_handshake(monkeypatch):
             worker.cancel()
             raise AssertionError("executor never emitted test_vulnerable")
 
-        # Green reply on the SAME context_id -> a second execute() call.
         eq2 = CollectEQ()
-        await ex.execute(FakeCtx(_reply_message({"exit_code": 1, "output": "AddressSanitizer: heap-buffer-overflow"}),
-                                 "t1b", "c1"), eq2)
+        await ex.execute(FakeCtx(
+            _reply_message({"exit_code": 1, "output": "AddressSanitizer: heap-buffer-overflow"}),
+            "t1b", "c1"), eq2)
         await asyncio.wait_for(worker, timeout=10)
         return eq1.events
 
     events = asyncio.run(go())
-    assert any(_is_test_request(e) for e in events)     # test round-trip happened
-    poc = _artifact_bytes(events)
-    assert poc is not None and len(poc) > 0             # final poc artifact submitted
+    assert any(_is_test_request(e) for e in events)
+    assert _artifact_bytes(events) == b"FINALPOC"

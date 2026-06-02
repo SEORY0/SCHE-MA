@@ -10,9 +10,8 @@
       "--port", "9009",
     ],
     env: {
-      // Skeleton (M6-a) needs no key; M6-b (Claude API backend) uses this.
+      // M6-b: the Claude API backend (recon->generate pipeline) requires this key.
       ANTHROPIC_API_KEY: { when: "config.anthropic_api_key", value: "${config.anthropic_api_key}" },
-      MAX_TEST_ITERS:    { when: "config.max_test_iters", value: "${config.max_test_iters}" },
       LOG_LEVEL: "INFO",
     },
     network: {
@@ -25,9 +24,8 @@
     type: "object",
     properties: {
       anthropic_api_key: { type: "string", secret: true },
-      max_test_iters:    { type: "string" },
     },
-    required: [],          // skeleton needs no secret; set anthropic_api_key required at M6-b
+    required: ["anthropic_api_key"],   // M6-b: the brain runs on the Claude API backend
     additionalProperties: false,
   },
   provides: {

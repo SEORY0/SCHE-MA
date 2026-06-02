@@ -86,6 +86,21 @@ def test_submit_poc_side_effects(tmp_path, monkeypatch):
     assert len(d.submissions) == 1 and d.submissions[0].exit_code == 1
 
 
+def test_submit_poc_uses_injected_transport(tmp_path):
+    # A2A mode: submit_poc routes through req.submit_fn (green test_vulnerable), not SubmitClient
+    (tmp_path / "poc").write_bytes(b"x")
+    calls = []
+
+    async def fake_transport(poc_path):
+        calls.append(poc_path)
+        return Verdict(exit_code=1, output="AddressSanitizer", poc_id="g1")
+
+    d = _disp(tmp_path, submit_fn=fake_transport)
+    out, is_err = asyncio.run(d.execute("submit_poc", {"poc_path": "poc"}))
+    assert not is_err and '"crashed": true' in out and "g1" in out
+    assert d.crash_found and len(calls) == 1 and d.winning_poc == "poc"
+
+
 def test_early_stop_on_consecutive_nocrash(tmp_path, monkeypatch):
     from schemata.backends.tools import dispatcher as disp_mod
     (tmp_path / "poc").write_bytes(b"nope")

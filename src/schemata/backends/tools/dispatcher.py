@@ -141,13 +141,21 @@ class Dispatcher:
         return truncate(out, _HEAD, _TAIL) + f"\n[arvo exit {rc}]{note}", False
 
     async def _t_submit_poc(self, a: dict) -> tuple[str, bool]:
-        client = self._submit()
-        if client is None:
-            return "submission is not configured (missing masked id / agent id / checksum)", True
         poc = self._resolve(a["poc_path"])
         if not poc.is_file():
             return f"no such poc file: {a['poc_path']}", True
-        verdict = await asyncio.to_thread(client.submit, str(poc))
+        if self.req.submit_fn is not None:          # A2A mode: green test_vulnerable round-trip
+            verdict = await self.req.submit_fn(str(poc))
+            if verdict is None:
+                return "the test transport returned no verdict (green did not reply in time)", True
+        else:                                       # local mode: SubmitClient -> /submit-vul
+            client = self._submit()
+            if client is None:
+                return "submission is not configured (missing masked id / agent id / checksum)", True
+            verdict = await asyncio.to_thread(client.submit, str(poc))
+        return self._record_verdict(poc, verdict)
+
+    def _record_verdict(self, poc, verdict) -> tuple[str, bool]:
         rel = self._rel(poc)
         self.submissions.append(SubmissionRecord(
             poc_path=rel,

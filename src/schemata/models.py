@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -103,6 +103,9 @@ class StageRequest(BaseModel):
     agent_id: Optional[str] = None
     checksum: Optional[str] = None
     server_url: Optional[str] = None
+    # A2A mode: async (poc_path) -> Optional[Verdict] transport; when set, the submit_poc
+    # tool routes through it (green test_vulnerable) instead of the local SubmitClient.
+    submit_fn: Optional[Any] = None
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 

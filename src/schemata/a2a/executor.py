@@ -3,21 +3,22 @@
 Protocol (negotiated with the CyberGym green agent):
   1. Green sends initial message: TextPart(prompt) + FilePart(repo-vul.tar.gz) +
      optional FilePart(description.txt/error.txt/repo-fix.tar.gz/patch.diff/README.md).
-  2. Purple writes files (A2ATaskSource), generates a PoC (agent.run_skeleton; M6-b: orchestrator).
-  3. Purple OPTIONALLY tests via a non-final TaskStatusUpdateEvent carrying
-     DataPart({"action":"test_vulnerable"}) + FilePart(poc). Green runs it and replies with
-     a new user message DataPart({"exit_code":..,"output":..}) — a SECOND execute() call.
+  2. Purple writes files (A2ATaskSource), then the brain generates a PoC. The brain owns the
+     green round-trip: its generate stage submits via test_vulnerable (A2AGreenSubmit) to get
+     crash feedback and repair.
+  3. test_vulnerable is a non-final TaskStatusUpdateEvent carrying DataPart({"action":...}) +
+     FilePart(poc). Green runs it and replies with a new user message DataPart({"exit_code",
+     "output"}) — a SECOND execute() call, bridged to the in-flight worker via the session queue.
   4. Purple submits the final PoC as a TaskArtifactUpdateEvent (FilePart name="poc"), then completes.
 
-The reply (step 3) is a separate execute() on the same context_id; we bridge it to the
-in-flight worker via a per-context Session(asyncio.Queue).
+The brain is pluggable (default: agent.run, the real claude_api pipeline); tests inject a
+fake brain to exercise the plumbing offline.
 """
 from __future__ import annotations
 
 import asyncio
 import base64
 import logging
-import os
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -31,12 +32,9 @@ from a2a.types import (Artifact, DataPart, FilePart, FileWithBytes, Message, Par
 
 from ..cybergym.intake import A2ATaskSource
 from ..cybergym.transport import A2AGreenSubmit
-from .agent import run_skeleton
+from .agent import SKELETON_POC, run as default_brain
 
 logger = logging.getLogger(__name__)
-
-# Test/repair iterations with the green. 0 = submit initial PoC without a test round-trip.
-MAX_TEST_ITERS = int(os.environ.get("MAX_TEST_ITERS", "1"))
 
 TERMINAL_STATES = {TaskState.completed, TaskState.canceled, TaskState.failed, TaskState.rejected}
 
@@ -64,8 +62,16 @@ def _extract_parts(message) -> tuple[str, dict[str, bytes], dict[str, Any] | Non
 
 
 class Executor(AgentExecutor):
-    def __init__(self) -> None:
+    def __init__(self, brain=None, settings=None) -> None:
         self._sessions: dict[str, Session] = {}
+        self._brain = brain or default_brain
+        self._settings = settings  # lazy-loaded on first task if None
+
+    def _get_settings(self):
+        if self._settings is None:
+            from ..config import load_settings
+            self._settings = load_settings()
+        return self._settings
 
     async def execute(self, context, event_queue) -> None:
         message = context.message
@@ -105,14 +111,9 @@ class Executor(AgentExecutor):
         handle = await A2ATaskSource(files, text).materialize(run_dir)
 
         await self._emit_status(event_queue, task_id, context_id, TaskState.working,
-                                f"Task {handle.label} level={handle.level}; generating PoC (skeleton)…",
-                                final=False)
+                                f"Task {handle.label} level={handle.level}; generating PoC…", final=False)
 
-        poc = await run_skeleton(handle, files)
-        poc_path = handle.task_dir / "poc"
-        poc_path.write_bytes(poc)
-
-        # Seam 2: verify via the green's test_vulnerable round-trip.
+        # Seam 2: the brain submits PoCs to the green via test_vulnerable for crash feedback.
         async def emit_test(poc_bytes: bytes) -> None:
             await self._emit_status(
                 event_queue, task_id, context_id, TaskState.working,
@@ -125,19 +126,16 @@ class Executor(AgentExecutor):
                 ],
             )
 
+        async def emit_progress(msg: str) -> None:
+            await self._emit_status(event_queue, task_id, context_id, TaskState.working, msg, final=False)
+
         transport = A2AGreenSubmit(emit_test, sess.reply_queue)
-        for attempt in range(MAX_TEST_ITERS):
-            verdict = await transport.submit(poc_path)
-            if verdict is None:
-                break  # green did not reply; submit what we have
-            if verdict.crashed:
-                await self._emit_status(event_queue, task_id, context_id, TaskState.working,
-                                        f"PoC triggered on attempt {attempt + 1}.", final=False)
-                break
-            await self._emit_status(event_queue, task_id, context_id, TaskState.working,
-                                    f"No crash (attempt {attempt + 1}); skeleton has no repair yet — submitting.",
-                                    final=False)
-            break  # M6-a skeleton: no repair brain (added in M6-b)
+        try:
+            poc = await self._brain(handle, files, self._get_settings(), transport, emit_progress)
+        except Exception as e:  # never fail the A2A task — submit a fallback so the green still scores it
+            logger.exception("brain failed")
+            await emit_progress(f"brain error: {e}; submitting fallback PoC")
+            poc = SKELETON_POC
 
         await self._submit_artifact(event_queue, task_id, context_id, poc)
         await self._emit_status(event_queue, task_id, context_id, TaskState.completed,

@@ -18,9 +18,11 @@ env = {}
 [[participants]]
 name = "agent"
 image = "schemata-purple:local"
-env = {}                              # skeleton needs no key; add ANTHROPIC_API_KEY = "${ANTHROPIC_API_KEY}" at M6-b
+env = { ANTHROPIC_API_KEY = "${ANTHROPIC_API_KEY}" }   # M6-b: brain runs on the Claude API backend
 
 [config]
-tasks = ["arvo:47101", "oss-fuzz:42535201"]   # 2-task smoke
+# Use a task whose data+target images we have locally (arvo:10400 is the only fully-local one).
+# The green runs PoCs in Docker, so it needs the target image (n132/arvo:10400-{vul,fix}) + task data.
+tasks = ["arvo:10400"]
 level = "level1"
 num_workers = 1
