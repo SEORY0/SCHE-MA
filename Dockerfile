@@ -11,6 +11,13 @@ COPY pyproject.toml README.md ./
 COPY src ./src
 RUN pip install --no-cache-dir .
 
+# config/ and prompts/ live at the repo root (not inside the installed package). Copy them
+# in and point the settings/prompt loaders at /app via SCHEMATA_ROOT — the brain needs both
+# at runtime; without this load_settings() fails and the agent submits only a fallback PoC.
+COPY config ./config
+COPY prompts ./prompts
+ENV SCHEMATA_ROOT=/app
+
 EXPOSE 9009
 # AgentBeats compose appends: --host 0.0.0.0 --port 9009 --card-url http://<name>:9009
 ENTRYPOINT ["python", "-m", "schemata.a2a.server"]

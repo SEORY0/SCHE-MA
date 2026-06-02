@@ -20,7 +20,10 @@ try:
 except Exception:  # dotenv optional
     pass
 
-PKG_ROOT = Path(__file__).resolve().parents[2]   # SCHE-MA/
+# Repo root: where config/, prompts/, data/ live. Overridable via SCHEMATA_ROOT for
+# installed/containerized deployments where the package is not run from the source tree
+# (e.g. the AgentBeats Docker image: `pip install .` puts the package in site-packages).
+PKG_ROOT = Path(os.environ.get("SCHEMATA_ROOT") or Path(__file__).resolve().parents[2])
 DEFAULT_CONFIG = PKG_ROOT / "config" / "schemata.toml"
 PROMPTS_DIR = PKG_ROOT / "prompts"
 DATA_DIR = PKG_ROOT / "data"
