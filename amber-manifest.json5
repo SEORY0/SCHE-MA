@@ -1,0 +1,39 @@
+// Amber manifest for the SCHE-MA CyberGym purple agent (AgentBeats).
+// Register on agentbeats.dev to obtain the agent id used in the leaderboard scenario.toml.
+{
+  manifest_version: "0.2.0",
+  program: {
+    image: "ghcr.io/seory0/schemata-cybergym:latest",   // replace with your GHCR image
+    entrypoint: [
+      "python", "-m", "schemata.a2a.server",
+      "--host", "0.0.0.0",
+      "--port", "9009",
+    ],
+    env: {
+      // Skeleton (M6-a) needs no key; M6-b (Claude API backend) uses this.
+      ANTHROPIC_API_KEY: { when: "config.anthropic_api_key", value: "${config.anthropic_api_key}" },
+      MAX_TEST_ITERS:    { when: "config.max_test_iters", value: "${config.max_test_iters}" },
+      LOG_LEVEL: "INFO",
+    },
+    network: {
+      endpoints: [
+        { name: "endpoint", port: 9009 },
+      ],
+    },
+  },
+  config_schema: {
+    type: "object",
+    properties: {
+      anthropic_api_key: { type: "string", secret: true },
+      max_test_iters:    { type: "string" },
+    },
+    required: [],          // skeleton needs no secret; set anthropic_api_key required at M6-b
+    additionalProperties: false,
+  },
+  provides: {
+    a2a: { kind: "a2a", endpoint: "endpoint" },
+  },
+  exports: {
+    a2a: "a2a",
+  },
+}

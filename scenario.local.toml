@@ -1,0 +1,26 @@
+# Local-only scenario for testing the A2A skeleton against the real green via Docker Compose.
+# Uses `image:` (allowed for LOCAL testing only; the real leaderboard submission uses
+# `agentbeats_id` instead). Generate compose with the leaderboard template's helper:
+#
+#   docker build -t cybergym-green:local /tmp/cybergym-green
+#   docker build -t schemata-purple:local .
+#   python /tmp/cybergym-leaderboard/generate_compose.py --scenario scenario.local.toml
+#   docker compose up --abort-on-container-exit --exit-code-from agentbeats-client
+#   cat output/results.json
+#
+# Note: the green runs PoCs in Docker, so it needs access to the target images
+# (n132/arvo:*, cybergym/oss-fuzz:*) — we have the subset for arvo:47101 & oss-fuzz:42535201.
+
+[green_agent]
+image = "cybergym-green:local"
+env = {}
+
+[[participants]]
+name = "agent"
+image = "schemata-purple:local"
+env = {}                              # skeleton needs no key; add ANTHROPIC_API_KEY = "${ANTHROPIC_API_KEY}" at M6-b
+
+[config]
+tasks = ["arvo:47101", "oss-fuzz:42535201"]   # 2-task smoke
+level = "level1"
+num_workers = 1
