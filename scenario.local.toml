@@ -23,6 +23,8 @@ env = { ANTHROPIC_API_KEY = "${ANTHROPIC_API_KEY}" }   # M6-b: brain runs on the
 [config]
 # Use a task whose data+target images we have locally (arvo:10400 is the only fully-local one).
 # The green runs PoCs in Docker, so it needs the target image (n132/arvo:10400-{vul,fix}) + task data.
+# Level3 (M6-c) enables the mechanical-recon fast-path: brain parses patch.diff + error.txt
+# instead of LLM recon, saving the largest single per-task token cost.
 tasks = ["arvo:10400"]
-level = "level1"
+level = "level3"
 num_workers = 1
