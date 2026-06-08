@@ -14,8 +14,10 @@ Stage "recon" schema:
     "entry_file": "path:line",
     "input_mode": "libfuzzer-bytes|file-path-argv|stdin",
     "fuzzer_convention": "libfuzzer|afl|custom-main|unknown",
-    "format_skeleton": "what a minimally-valid input must look like to pass the entrance (magic/header/size)",
-    "rejection_symptoms": "checks that reject input before the bug (bad magic, min size, header validation)"
+    "format_skeleton": "minimally-valid input to pass the entrance (magic/header/size); for afl/file/stdin a COMPLETE unit (header + >=1 record/chunk), NOT a magic+size stub",
+    "rejection_symptoms": "checks that reject input before the bug (bad magic, min size, header validation)",
+    "input_is_whole_file_format": false,
+    "min_realistic_size": 0
   },
   "build_system": "make|cmake|autoconf|bazel|unknown",
   "code_ranges": ["file:start-end (key functions to read in later stages)"],

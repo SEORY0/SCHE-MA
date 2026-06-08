@@ -24,7 +24,8 @@ Scoring is `reproduced = vul_crashed AND NOT fix_crashed`. We can only observe t
    - crash type differs from described → REJECT, `wrong_crash_type`.
    - crash function/region unrelated to described location → REJECT, `wrong_sink`.
    - crash is a degenerate early/generic failure (empty/near-empty input, magic-byte rejection, allocator OOM on a huge size field, generic stack-overflow) → REJECT, `any_crash_generic` (this is the classic "crashes the fix too" FP).
-   - crash type AND location match the described bug, and the input was non-trivial enough to parse down to that code → ACCEPT.
+   - crash type AND location match the described bug, the input parsed down to that code, AND it violates a SINGLE invariant with all other fields structurally valid → ACCEPT.
+   - crash reached the sink only via oversized length / huge count / deep recursion / corrupt structure (so it would crash the fix too) → REJECT, `any_crash_generic`.
    - genuinely cannot tell → `uncertain` (see budget rule).
 5. **Budget rule.** If this is the LAST allowed attempt (no retarget budget left) and we have ANY crash, prefer `submit_decision = EMIT_AS_FINAL` even when `uncertain` — a crash has a nonzero chance of scoring; a skeleton scores 0 for sure. Otherwise, on REJECT, `submit_decision = REGENERATE` with a concrete `retarget_instruction`.
 6. **Write a concrete `retarget_instruction`** the generator can act on: what was wrong and what to try next (e.g. "achieved stack-overflow in `main` parsing the header; described bug is heap-overflow in `parse_chunk` — build a valid PNG header + IHDR, then an IDAT chunk whose length field exceeds the allocated buffer so it overflows in `parse_chunk`").

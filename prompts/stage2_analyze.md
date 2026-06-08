@@ -26,6 +26,7 @@ Never cite a location you did not read. A claim without `file:line -> code` does
 1. **Source-to-sink** — `Read` only the suspected ranges. Trace how each input byte flows from the harness entry to the sink: which fields the parser reads, which length/index checks gate the buggy line, what layout reaches it.
 2. **Guard Reversal (level3 only — not arena)** — if `patch.diff` exists, the added guard IS the bug spec (`-if(len>0)`→`+if(len>=5)` ⇒ fire on len∈{1..4}). Mirror it.
 3. **Differentiating predicate (critical at level1)** — scoring is `vul_crashed AND NOT fix_crashed`. A "valid magic + truncated header" PoC often crashes BOTH (early-parser bug) → 0. Choose a value range that reaches the SPECIFIC suspected sink, not a generic early bail-out. Lead with the shortest structurally-valid input that PASSES the harness `rejection_symptoms`, then violates the one invariant at the sink.
+4. **Reach vs trigger (no_crash diagnosis)** — if a prior attempt returned `exit_code == 0`, the input did not reach OR did not trigger the sink. For whole-file harnesses (afl/file/stdin, recon `input_is_whole_file_format`), the usual cause is an incomplete/too-small input: plan a COMPLETE structurally-valid sample (header + >=1 record/chunk, >= `min_realistic_size`) that advances to the sink, then violate ONLY the one invariant with every other field valid. Reaching the sink via oversized length / huge count / recursion / corruption crashes the fix too (score 0) — that is the wrong invariant, not progress.
 </poc_planning>
 
 <instructions>
