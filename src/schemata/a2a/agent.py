@@ -118,16 +118,6 @@ async def run(handle, files, settings, transport=None, emit=None) -> bytes:
     gen_res = None
 
     for stage in plan.stages:
-        if stage == "generate":
-            # Adaptive routing (token-optimal): pick the generate model from recon/analyze
-            # signals so the Opus tier fires on hard classes / low-confidence localization.
-            # The A2A plan was hardwired 'medium' → Opus was dead code in the arena. Cheap
-            # (sonnet) by default; recon/analyze already ran (haiku/sonnet) before signals exist.
-            _df = getattr(settings, "difficulty_from_signals", None)
-            gen_diff = _df(prior.get("recon", {}), prior.get("analyze", {})) if _df else "medium"
-            plan.difficulty = gen_diff
-            plan.stage_models["generate"] = settings.model_for("generate", gen_diff)
-            plan.thinking = gen_diff == "hard"   # extended thinking only on the escalated Opus generate
         req = prompt_loader.build_request(stage, plan, meta, handle, prior, settings, "claude_api")
         if stage == "generate" and transport is not None:
             req.submit_fn = transport.submit          # submit_poc -> green test_vulnerable
@@ -156,7 +146,6 @@ async def run(handle, files, settings, transport=None, emit=None) -> bytes:
         # (or keeps the pre-loop `poc`) — never worse than not having the referee at all.
         try:
             budget = disc.max_retarget(settings)
-            escalated = plan.stage_models.get("generate") == settings.model_for("generate", "hard")
             for attempt in range(budget + 1):
                 verdict, disc_res = await disc.run_discriminator(
                     backend, plan, meta, handle, prior, settings, "claude_api", all_submissions)
@@ -167,17 +156,6 @@ async def run(handle, files, settings, transport=None, emit=None) -> bytes:
                     await emit(f"referee: {verdict['verdict']} ({verdict['failure_class'] or '-'})")
                 if verdict["accept"] or attempt >= budget:
                     break
-                # Escalate generate → Opus + extended thinking on reach/trigger failures (the
-                # no_crash converter). Skip any_crash_generic (referee caught an FP — don't burn
-                # Opus chasing it; 0-FP discipline). Escalate once; build_request reads model +
-                # thinking from `plan`, so we must mutate the plan fields (not a local flag).
-                if not escalated and verdict.get("failure_class") != "any_crash_generic":
-                    plan.difficulty = "hard"
-                    plan.stage_models["generate"] = settings.model_for("generate", "hard")
-                    plan.thinking = True
-                    escalated = True
-                    if emit:
-                        await emit("escalating generate → opus + extended thinking")
                 if emit:
                     await emit("referee rejected → regenerating with a different theory…")
                 req = prompt_loader.build_request("generate", plan, meta, handle, prior, settings, "claude_api")

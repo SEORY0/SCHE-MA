@@ -69,33 +69,6 @@ class Settings:
         return models.get("by_difficulty", {}).get(difficulty, "opus")
 
     @property
-    def routing_signals(self) -> dict[str, Any]:
-        return self.raw.get("routing", {}).get("signals", {})
-
-    def difficulty_from_signals(self, recon: dict, analyze: dict) -> str:
-        """Generate-stage difficulty from RUNTIME recon/analyze signals, so the Opus tier
-        actually fires in the arena (the A2A plan was hardwired to 'medium', making Opus dead
-        code). Token-optimal: cheap sonnet by default, opus only on hard classes / low-confidence
-        localization. Missing or malformed signals -> 'medium' (prior behavior, no change)."""
-        import re
-        sig = self.routing_signals
-        hard = sig.get("hard_crash_classes",
-                       ["use-after-free", "uaf", "type-confusion", "double-free", "uninitialized"])
-        low = float(sig.get("low_confidence_below", 0.5))
-        easy = float(sig.get("easy_confidence_atleast", 0.8))
-        recon, analyze = recon or {}, analyze or {}
-        crash = str(recon.get("crash_type", "") or "").lower()
-        try:
-            conf = float((analyze.get("localization", {}) or {}).get("overall_confidence", 1.0))
-        except (TypeError, ValueError):
-            conf = 1.0
-        if any(re.search(h, crash) for h in hard) or conf < low:
-            return "hard"
-        if (recon.get("harness", {}) or {}).get("seed_candidates") and conf >= easy:
-            return "easy"
-        return "medium"
-
-    @property
     def claude_code(self) -> dict[str, Any]:
         return self.raw.get("claude_code", {})
 

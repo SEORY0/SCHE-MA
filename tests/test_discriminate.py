@@ -110,15 +110,13 @@ def test_discriminate_reject_then_retarget_then_accept(tmp_path, monkeypatch):
 
 
 def test_discriminate_stops_at_retarget_budget(tmp_path, monkeypatch):
-    # All rounds REJECT -> bounded by max_retarget=2 -> still emit the best crash we have.
+    # Both rounds REJECT -> bounded by max_retarget=1 -> still emit the best crash we have.
     backend = _DiscBackend(verdicts=[
-        {"verdict": "REJECT", "submit_decision": "REGENERATE"},
         {"verdict": "REJECT", "submit_decision": "REGENERATE"},
         {"verdict": "REJECT", "submit_decision": "REGENERATE"},
     ])
     poc = _run(tmp_path, backend, monkeypatch)
-    assert backend.stages == ["recon", "analyze", "generate", "discriminate",
-                              "generate", "discriminate", "generate", "discriminate"]
+    assert backend.stages == ["recon", "analyze", "generate", "discriminate", "generate", "discriminate"]
     assert poc == b"CRASHDATA"          # a crash still beats the skeleton
 
 
