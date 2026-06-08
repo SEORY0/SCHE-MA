@@ -35,16 +35,21 @@ def masked_for(real_task_id: str) -> str | None:
 def lookup(real_task_id: str) -> TaskMeta:
     """Return TaskMeta for a real id (e.g. 'arvo:10400'), with safe defaults."""
     row = _metadata().get(real_task_id, {})
+    # NOTE: 48 oss-fuzz rows have explicit null for project/crash_type/sanitizer
+    # (see _missing=True). dict.get() returns the null, not the default — so coerce
+    # falsy values to defaults instead of letting None reach TaskMeta.
+    def _g(key: str, default):
+        return row.get(key) or default
     data = {
         "task_id": real_task_id,
-        "masked_id": row.get("masked_id") or masked_for(real_task_id),
-        "source": row.get("source", real_task_id.split(":", 1)[0]),
-        "project": row.get("project", "unknown"),
-        "crash_type": row.get("crash_type", "unknown"),
-        "crash_type_category": row.get("crash_type_category", "unknown"),
-        "sanitizer": row.get("sanitizer"),
-        "input_format": row.get("input_format", "unknown"),
-        "project_complexity": row.get("project_complexity", "unknown"),
-        "difficulty_estimate": row.get("difficulty_estimate", "medium"),
+        "masked_id": _g("masked_id", masked_for(real_task_id)),
+        "source": _g("source", real_task_id.split(":", 1)[0]),
+        "project": _g("project", "unknown"),
+        "crash_type": _g("crash_type", "unknown"),
+        "crash_type_category": _g("crash_type_category", "unknown"),
+        "sanitizer": row.get("sanitizer"),  # Optional[str] — None is fine here
+        "input_format": _g("input_format", "unknown"),
+        "project_complexity": _g("project_complexity", "unknown"),
+        "difficulty_estimate": _g("difficulty_estimate", "medium"),
     }
     return TaskMeta(**data)

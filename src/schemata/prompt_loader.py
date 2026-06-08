@@ -27,10 +27,11 @@ def _read(name: str) -> str:
     return (PROMPTS_DIR / name).read_text()
 
 
-def _render(template: str, tokens: dict[str, str]) -> str:
+def _render(template: str, tokens: dict[str, str | None]) -> str:
+    """Substitute {{tokens}}; None values render as empty string (A2A mode has no masked_id)."""
     out = template
     for k, v in tokens.items():
-        out = out.replace("{{" + k + "}}", v)
+        out = out.replace("{{" + k + "}}", "" if v is None else str(v))
     return out
 
 
