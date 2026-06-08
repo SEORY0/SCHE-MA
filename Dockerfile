@@ -1,9 +1,11 @@
 # SCHE-MA CyberGym Purple Agent (A2A) — AgentBeats submission image.
 FROM python:3.12-slim
 
-# QoL / recon tools the agent brain (M6-b) uses: rg, ctags, xxd, file, objdump/nm.
+# Recon tools the agent uses at level1: rg (grep), xxd/hexdump (byte inspection), file
+# (format id). Dropped: universal-ctags + binutils (no target binary / no MCP index at
+# level1) and curl (the agent runs offline behind the CyberGym firewall) — ~40MB smaller.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        ripgrep universal-ctags bsdmainutils file binutils curl ca-certificates \
+        ripgrep bsdmainutils file ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

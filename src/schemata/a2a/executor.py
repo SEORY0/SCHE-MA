@@ -114,6 +114,8 @@ class Executor(AgentExecutor):
         run_dir = Path(tempfile.mkdtemp(prefix="schemata_a2a_"))
         try:
             handle = await A2ATaskSource(files, text).materialize(run_dir)
+            files.clear()  # repo bytes are on disk now; the brain reads from handle.task_dir,
+                           # not from this dict — free the RAM (repo-vul can be 100s of MB).
 
             await self._emit_status(event_queue, task_id, context_id, TaskState.working,
                                     f"Task {handle.label} level={handle.level}; generating PoC…", final=False)
