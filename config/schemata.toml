@@ -29,6 +29,15 @@ easy = "sonnet"
 medium = "sonnet"
 hard = "opus"
 
+[routing.signals]
+# Generate-stage model is chosen from RUNTIME recon/analyze signals (config.difficulty_from_signals)
+# so the Opus tier actually fires in the arena (the A2A plan was hardwired 'medium'). Adaptive =
+# token-optimal: cheap Sonnet by default; Opus(+extended thinking) only on hard crash classes,
+# low-confidence localization, or no_crash retargets. easy/medium -> sonnet; hard -> opus.
+hard_crash_classes = ["use-after-free", "uaf", "type-confusion", "double-free", "uninitialized"]
+low_confidence_below = 0.5
+easy_confidence_atleast = 0.8
+
 [stages.recon]
 max_turns = 12
 tools = ["Bash", "Read", "Grep", "Glob"]
@@ -55,7 +64,7 @@ enabled = true
 max_turns = 10
 tools = ["Bash", "Read", "Grep", "Glob"]
 tier = "read_only"
-max_retarget = 1                 # extra generate rounds when the referee REJECTs (cost-bounded)
+max_retarget = 2                 # escalation ladder: rung 1 cheap, rung 2 escalated (cost-bounded by per_task_soft_usd)
 
 [recon]
 semgrep_config = "auto"
