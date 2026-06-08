@@ -87,8 +87,12 @@ async def run(handle, files, settings, transport=None, emit=None) -> bytes:
     from .. import prompt_loader
     from ..backends.claude_api import ClaudeApiBackend
 
-    _log(f"task={getattr(handle, 'label', '?')} level={getattr(handle, 'level', '?')} "
-         f"files={sorted(files)} api_key_set={bool(getattr(settings, 'anthropic_api_key', None))}")
+    # One-line task-start breadcrumb (no per-stage spam — at 49 tasks × 10 workers each
+    # emitting recon/analyze/generate start+end, the cumulative log volume filled the
+    # GitHub Actions runner disk on PR #202 shard-1 and killed the run mid-flight.)
+    api_key_set = bool(getattr(settings, "anthropic_api_key", None))
+    lvl = getattr(handle, "level", "?")
+    label = getattr(handle, "label", "?")
 
     backend = ClaudeApiBackend(settings)
     meta = TaskMeta(task_id=handle.label, difficulty_estimate="medium")
@@ -96,39 +100,42 @@ async def run(handle, files, settings, transport=None, emit=None) -> bytes:
 
     # ---- level3 fast-path: mechanical recon, skip the LLM recon call ------------
     level3_recon = None
-    if getattr(handle, "level", None) == "level3":
+    if lvl == "level3":
         level3_recon = extract_level3_recon(Path(handle.task_dir))
     if level3_recon is not None:
         prior["recon"] = level3_recon
         ct = level3_recon.get("crash_type") or "unknown"
         n_files = len(level3_recon.get("suspected_files", []))
-        _log(f"level3 mechanical recon: {ct}, {n_files} suspected files; skip LLM recon")
+        _log(f"{label} level=level3 fast-path: {ct} ({n_files} files); skipping LLM recon")
         if emit:
             await emit(f"level3 mechanical recon: {ct}, {n_files} suspected file(s); skipping LLM recon")
     else:
-        _log(f"level3 fast-path skipped (level={getattr(handle, 'level', '?')}, intel=None)")
+        _log(f"{label} level={lvl} api_key={api_key_set}")
 
     plan = _a2a_plan(settings, skip_recon=level3_recon is not None)
     poc: bytes | None = None
+    gen_res = None
 
     for stage in plan.stages:
         req = prompt_loader.build_request(stage, plan, meta, handle, prior, settings, "claude_api")
         if stage == "generate" and transport is not None:
             req.submit_fn = transport.submit          # submit_poc -> green test_vulnerable
-        _log(f"stage {stage} start (model={req.model})")
         if emit:
             await emit(f"stage {stage} ({req.model})…")
         res = await backend.run_stage(req)
         prior[stage] = res.structured_output
-        _log(f"stage {stage} end: stop_reason={res.stop_reason} error={res.error!r} "
-             f"submissions={len(res.artifacts.submissions)} cost=${res.cost_usd:.3f} "
-             f"poc_path={res.artifacts.poc_path!r}")
+        if res.error or res.stop_reason == "error":
+            _log(f"{label} stage {stage} ERROR: stop={res.stop_reason} err={res.error!r}")
         if stage == "generate":
+            gen_res = res
             poc = _read_poc(handle, res)
-            _log(f"_read_poc -> {len(poc) if poc else 0} bytes")
             if emit:
                 await emit(f"generate {res.stop_reason}: {len(res.artifacts.submissions)} test(s)")
 
-    if poc is None:
-        _log("WARN: poc is None — returning SKELETON_POC. Check ANTHROPIC_API_KEY wiring.")
+    # One-line task-end breadcrumb. This is the line we need for post-mortem: did
+    # generate succeed? how many submit_poc round-trips? did we return a real PoC?
+    n_sub = len(gen_res.artifacts.submissions) if gen_res else 0
+    stop = gen_res.stop_reason if gen_res else "no-generate"
+    _log(f"{label} done: stop={stop} subs={n_sub} poc={len(poc) if poc else 0}B"
+         f"{' SKELETON_FALLBACK' if poc is None else ''}")
     return poc or SKELETON_POC

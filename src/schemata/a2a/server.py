@@ -74,6 +74,11 @@ def main() -> None:
     uvicorn.run(
         build_app(host=args.host, port=args.port, card_url=args.card_url),
         host=args.host, port=args.port, timeout_keep_alive=3600,
+        # access_log=False: silences the per-request `INFO: 127.0.0.1 - "POST /" 200 OK`
+        # line. Each arena task generates dozens of these (agent-card poll + a2a POSTs +
+        # test_vulnerable round-trips). 49 tasks × 10 workers fills the runner disk via
+        # amber-otelcol's log pipeline; this is the loudest source.
+        access_log=False,
     )
 
 
