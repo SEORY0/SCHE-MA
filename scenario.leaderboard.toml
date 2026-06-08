@@ -51,5 +51,8 @@ tasks = [
 level = "level1"
 # Parallel workers across the 49 tasks. 4 balances speed vs cost/runner load (commit
 # 07848fd trimmed runtime logs to avoid runner disk-fill on 49-task runs). Lower to 1-2 to
-# cap concurrent Claude API spend. The top level1 49-task submissions use 10.
-num_workers = 10
+# Concurrent tasks. Each concurrent task = the green spinning large vul+fix target images +
+# our agent untarring a repo, all on ONE ~14GB leaderboard runner. num_workers=10 (what some
+# top agents use) can hit "No space left on device" on 49-task runs. 4 is a safe default now
+# that the executor cleans each task's scratch dir; raise toward 10 only after a clean run.
+num_workers = 4

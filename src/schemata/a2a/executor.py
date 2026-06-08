@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
+import shutil
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -107,39 +108,45 @@ class Executor(AgentExecutor):
         await self._emit_status(event_queue, task_id, context_id,
                                 TaskState.working, "Analysing task files…", final=False)
 
+        # Per-task scratch dir (repo-vul is extracted here). MUST be removed after the task —
+        # otherwise 49 untarred repos accumulate in the container and fill the runner disk
+        # ("No space left on device"), especially at high num_workers. See finally.
         run_dir = Path(tempfile.mkdtemp(prefix="schemata_a2a_"))
-        handle = await A2ATaskSource(files, text).materialize(run_dir)
-
-        await self._emit_status(event_queue, task_id, context_id, TaskState.working,
-                                f"Task {handle.label} level={handle.level}; generating PoC…", final=False)
-
-        # Seam 2: the brain submits PoCs to the green via test_vulnerable for crash feedback.
-        async def emit_test(poc_bytes: bytes) -> None:
-            await self._emit_status(
-                event_queue, task_id, context_id, TaskState.working,
-                "Requesting test_vulnerable…", final=False,
-                extra_parts=[
-                    Part(root=DataPart(data={"action": "test_vulnerable"})),
-                    Part(root=FilePart(file=FileWithBytes(
-                        bytes=base64.b64encode(poc_bytes).decode("ascii"),
-                        name="poc", mime_type="application/octet-stream"))),
-                ],
-            )
-
-        async def emit_progress(msg: str) -> None:
-            await self._emit_status(event_queue, task_id, context_id, TaskState.working, msg, final=False)
-
-        transport = A2AGreenSubmit(emit_test, sess.reply_queue)
         try:
-            poc = await self._brain(handle, files, self._get_settings(), transport, emit_progress)
-        except Exception as e:  # never fail the A2A task — submit a fallback so the green still scores it
-            logger.exception("brain failed")
-            await emit_progress(f"brain error: {e}; submitting fallback PoC")
-            poc = SKELETON_POC
+            handle = await A2ATaskSource(files, text).materialize(run_dir)
 
-        await self._submit_artifact(event_queue, task_id, context_id, poc)
-        await self._emit_status(event_queue, task_id, context_id, TaskState.completed,
-                                f"Submitted PoC ({len(poc)} bytes)", final=True)
+            await self._emit_status(event_queue, task_id, context_id, TaskState.working,
+                                    f"Task {handle.label} level={handle.level}; generating PoC…", final=False)
+
+            # Seam 2: the brain submits PoCs to the green via test_vulnerable for crash feedback.
+            async def emit_test(poc_bytes: bytes) -> None:
+                await self._emit_status(
+                    event_queue, task_id, context_id, TaskState.working,
+                    "Requesting test_vulnerable…", final=False,
+                    extra_parts=[
+                        Part(root=DataPart(data={"action": "test_vulnerable"})),
+                        Part(root=FilePart(file=FileWithBytes(
+                            bytes=base64.b64encode(poc_bytes).decode("ascii"),
+                            name="poc", mime_type="application/octet-stream"))),
+                    ],
+                )
+
+            async def emit_progress(msg: str) -> None:
+                await self._emit_status(event_queue, task_id, context_id, TaskState.working, msg, final=False)
+
+            transport = A2AGreenSubmit(emit_test, sess.reply_queue)
+            try:
+                poc = await self._brain(handle, files, self._get_settings(), transport, emit_progress)
+            except Exception as e:  # never fail the A2A task — submit a fallback so the green still scores it
+                logger.exception("brain failed")
+                await emit_progress(f"brain error: {e}; submitting fallback PoC")
+                poc = SKELETON_POC
+
+            await self._submit_artifact(event_queue, task_id, context_id, poc)
+            await self._emit_status(event_queue, task_id, context_id, TaskState.completed,
+                                    f"Submitted PoC ({len(poc)} bytes)", final=True)
+        finally:
+            shutil.rmtree(run_dir, ignore_errors=True)
 
     async def _emit_status(self, event_queue, task_id, context_id, state, text,
                            *, final, extra_parts=None) -> None:
