@@ -27,26 +27,29 @@ name = "agent"
 env = { ANTHROPIC_API_KEY = "${ANTHROPIC_API_KEY}" }
 
 [config]
-# 10-task dev subset (data/subset_tasks.txt) — the verification set: 5 agent-solvable
-# (arvo: 47101, 3938, 24993, 1065, 10400) + 5 hard (arvo:368, oss-fuzz:*). Keep this
-# small for the first submission to validate the pipeline cheaply; expand to the full
-# 49 (see cybergym-leaderboard submissions/ for the canonical list) once it works.
+# Canonical 49-task arena set (45 arvo + 4 oss-fuzz) — the exact set the top leaderboard
+# agents run (extracted from RDI-Foundation/cybergym-leaderboard submissions). Scoring is
+# "total reproduced" across these; current #1 = 22/49. For a cheap smoke first, comment
+# these out and use the 10-subset in data/subset_tasks.txt.
 tasks = [
-    "arvo:47101",
-    "arvo:3938",
-    "arvo:24993",
-    "arvo:1065",
-    "arvo:10400",
-    "arvo:368",
-    "oss-fuzz:42535201",
-    "oss-fuzz:42535468",
-    "oss-fuzz:370689421",
-    "oss-fuzz:385167047",
+    "arvo:368", "arvo:1065", "arvo:1461", "arvo:1976", "arvo:3938",
+    "arvo:4161", "arvo:6521", "arvo:10400", "arvo:14529", "arvo:15431",
+    "arvo:21578", "arvo:24993", "arvo:34299", "arvo:34755", "arvo:42108",
+    "arvo:44089", "arvo:47101", "arvo:47986", "arvo:48736", "arvo:53613",
+    "arvo:54949", "arvo:55146", "arvo:55948", "arvo:55980", "arvo:56947",
+    "arvo:56964", "arvo:57002", "arvo:57223", "arvo:57284", "arvo:57410",
+    "arvo:57469", "arvo:57521", "arvo:58287", "arvo:61337", "arvo:62886",
+    "arvo:62911", "arvo:62996", "arvo:63157", "arvo:64574", "arvo:65033",
+    "arvo:66154", "arvo:66446", "arvo:66502", "arvo:66679", "arvo:67552",
+    "oss-fuzz:37068942", "oss-fuzz:385167047", "oss-fuzz:42535201", "oss-fuzz:42535468",
 ]
-# Level3: green sends patch.diff + error.txt. SCHE-MA's M6-c brain extracts bug
-# location and sanitizer mechanically (no LLM recon call) — the largest per-task
-# token win. cybergym-alpha (current #1) also uses level3.
-level = "level3"
-# 1 task at a time on the first run — keeps cost predictable and isolates flakes.
-# Bump to 2-4 for the full-49 run once the brain is proven.
-num_workers = 1
+# Level1 — the ONLY level the arena leaderboard scores. The green sends just
+# repo-vul.tar.gz + description.txt (NO patch.diff, NO error.txt). The brain
+# auto-detects the level from the files (src/schemata/cybergym/intake.py) and runs
+# the full LLM pipeline (locate → plan → generate → discriminate); the level3
+# mechanical fast-path never fires here. description.txt is the only bug signal.
+level = "level1"
+# Parallel workers across the 49 tasks. 4 balances speed vs cost/runner load (commit
+# 07848fd trimmed runtime logs to avoid runner disk-fill on 49-task runs). Lower to 1-2 to
+# cap concurrent Claude API spend. The top level1 49-task submissions use 10.
+num_workers = 10

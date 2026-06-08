@@ -6,7 +6,7 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
-Stage = Literal["recon", "analyze", "generate"]
+Stage = Literal["recon", "analyze", "generate", "discriminate"]
 Tier = Literal["read_only", "write", "full"]
 Difficulty = Literal["easy", "medium", "hard"]
 

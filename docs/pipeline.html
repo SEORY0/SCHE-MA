@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SCHE-MA Pipeline — CyberGym Arena (level1)</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2330; --line:#30363d;
+    --ink:#e6edf3; --mut:#9aa7b4; --dim:#6e7b8a;
+    --haiku:#2dd4bf; --sonnet:#58a6ff; --opus:#bc8cff;
+    --green:#3fb950; --amber:#d29922; --red:#f85149; --new:#f778ba;
+    --chip:#21262d;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:radial-gradient(1200px 600px at 50% -10%,#13203a 0%,var(--bg) 55%);
+    color:var(--ink);font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans KR",sans-serif;
+    padding:32px 16px 64px}
+  .wrap{max-width:1080px;margin:0 auto}
+  h1{font-size:24px;margin:0 0 4px;letter-spacing:.2px}
+  h1 .sub{color:var(--sonnet)}
+  .lede{color:var(--mut);margin:0 0 20px;font-size:13.5px}
+  .legend{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0 26px}
+  .badge{display:inline-flex;align-items:center;gap:6px;background:var(--chip);border:1px solid var(--line);
+    border-radius:999px;padding:4px 11px;font-size:12px;color:var(--mut)}
+  .dot{width:9px;height:9px;border-radius:50%}
+  .b-haiku{color:var(--haiku)} .b-sonnet{color:var(--sonnet)} .b-opus{color:var(--opus)} .b-new{color:var(--new)}
+
+  .rail{position:relative;padding-left:0}
+  .node{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 18px;
+    position:relative;box-shadow:0 1px 0 rgba(255,255,255,.02),0 8px 24px rgba(0,0,0,.25)}
+  .stage{border-left:4px solid var(--line)}
+  .s-haiku{border-left-color:var(--haiku)} .s-sonnet{border-left-color:var(--sonnet)}
+  .s-opus{border-left-color:var(--opus)} .s-new{border-left-color:var(--new)}
+  .head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .num{font-size:12px;color:var(--dim);font-weight:700;letter-spacing:1px}
+  .title{font-size:16px;font-weight:700}
+  .kr{color:var(--mut);font-weight:500;font-size:13px}
+  .model{margin-left:auto;font-size:11.5px;font-weight:700;padding:3px 9px;border-radius:999px;border:1px solid}
+  .m-haiku{color:var(--haiku);border-color:#1c4d47;background:#0f2a27}
+  .m-sonnet{color:var(--sonnet);border-color:#1f3a5c;background:#0f1f33}
+  .m-opus{color:var(--opus);border-color:#3a2c57;background:#1d142e}
+  .tagnew{font-size:10px;font-weight:800;color:#0d1117;background:var(--new);border-radius:6px;padding:2px 6px;letter-spacing:.4px}
+  .does{margin:9px 0 4px;color:var(--ink);font-size:14px}
+  .io{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+  .chip{font-size:11.5px;color:var(--mut);background:var(--chip);border:1px solid var(--line);border-radius:7px;padding:3px 8px}
+  .chip b{color:var(--ink);font-weight:600}
+  .chip.in::before{content:"in ▸ ";color:var(--dim)}
+  .chip.out::before{content:"out ▸ ";color:var(--green)}
+
+  .arrow{display:flex;flex-direction:column;align-items:center;gap:2px;padding:7px 0;color:var(--dim)}
+  .arrow .lab{font-size:11.5px;color:var(--mut);background:var(--panel2);border:1px solid var(--line);
+    border-radius:7px;padding:2px 9px}
+  .arrow .v{font-size:15px;line-height:1;color:var(--line)}
+
+  .end{display:flex;gap:10px;align-items:center;justify-content:center;flex-wrap:wrap;text-align:center}
+  .pill{border-radius:12px;padding:12px 16px;border:1px solid var(--line);background:var(--panel2)}
+  .pill.green{border-color:#1f5130;background:#0f2417}
+  .pill.score{border-color:#3a2c57;background:#160f24}
+  .score b{color:var(--new)}
+
+  /* generate <-> green round-trip */
+  .roundtrip{display:grid;grid-template-columns:1fr auto 220px;gap:0;align-items:center;margin:7px 0}
+  .rt-mid{display:flex;flex-direction:column;align-items:center;color:var(--mut);font-size:11px;padding:0 10px;white-space:nowrap}
+  .rt-mid .ar{font-size:18px;color:var(--sonnet);line-height:1}
+  .greenbox{border:1px dashed #2f6b3f;background:#0f2417;border-radius:12px;padding:12px 14px}
+  .greenbox .gt{color:var(--green);font-weight:700;font-size:13px}
+  .greenbox small{color:var(--mut)}
+
+  /* discriminate outcomes */
+  .out2{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px}
+  .verdict{flex:1 1 240px;border-radius:10px;padding:10px 12px;border:1px solid var(--line);background:var(--panel2);font-size:13px}
+  .verdict.acc{border-color:#1f5130}
+  .verdict.rej{border-color:#5c4711;background:#1f1808}
+  .verdict .vh{font-weight:700;margin-bottom:2px}
+  .acc .vh{color:var(--green)} .rej .vh{color:var(--amber)}
+  .loopline{display:flex;align-items:center;gap:8px;color:var(--amber);font-size:12px;margin-top:8px;
+    border-top:1px dashed #5c4711;padding-top:8px}
+
+  .cols{display:grid;grid-template-columns:1fr;gap:14px;margin-top:26px}
+  @media(min-width:820px){.cols{grid-template-columns:1fr 1fr}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+  .card h3{margin:0 0 9px;font-size:13px;color:var(--mut);text-transform:uppercase;letter-spacing:.6px}
+  .card ul{margin:0;padding-left:18px;color:var(--ink);font-size:13px}
+  .card li{margin:5px 0}
+  .card li span{color:var(--mut)}
+  .muthead{color:var(--dim);font-size:12px;text-align:center;margin:30px 0 10px;letter-spacing:.5px;text-transform:uppercase}
+  .foot{color:var(--dim);font-size:12px;margin-top:22px;line-height:1.7}
+  code{background:#0b0f15;border:1px solid var(--line);border-radius:5px;padding:1px 5px;font-size:12px;color:#c9d4e0}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>SCHE-MA <span class="sub">Pipeline</span> — CyberGym AgentBeats Arena (<b>level1</b>)</h1>
+  <p class="lede">3-stage 비용라우팅 파이프라인 + 독립 판별 게이트. 입력은 <code>repo-vul.tar.gz</code> + <code>description.txt</code>뿐(level1).
+    목표: vulnerable 빌드만 크래시하는 PoC = <b>score 1</b>. 오프라인(방화벽), task_id 마스킹.</p>
+
+  <div class="legend">
+    <span class="badge"><span class="dot" style="background:var(--haiku)"></span>Haiku <span class="b-haiku">cheap triage</span></span>
+    <span class="badge"><span class="dot" style="background:var(--sonnet)"></span>Sonnet <span class="b-sonnet">reasoning</span></span>
+    <span class="badge"><span class="dot" style="background:var(--opus)"></span>Opus <span class="b-opus">hard generate</span></span>
+    <span class="badge"><span class="dot" style="background:var(--new)"></span><span class="b-new">NEW</span> 이번 세션 P1–P4</span>
+  </div>
+
+  <div class="rail">
+
+    <!-- intake -->
+    <div class="node">
+      <div class="head"><span class="title">🟢 Green agent → A2A executor → intake</span></div>
+      <div class="does">green이 task 파일 전송 → <code>A2ATaskSource</code>가 workdir 구성, 파일 구성으로 <b>level 자동 추론</b> → <code>TaskHandle</code>.</div>
+      <div class="io"><span class="chip in"><b>repo-vul.tar.gz</b> + <b>description.txt</b> (level1)</span><span class="chip">README.md</span></div>
+    </div>
+
+    <div class="arrow"><span class="lab">TaskHandle (level1)</span><span class="v">▼</span></div>
+
+    <!-- stage 1 recon -->
+    <div class="node stage s-haiku">
+      <div class="head"><span class="num">STAGE 1</span><span class="title">Recon</span><span class="kr">정찰·하니스 파악</span>
+        <span class="model m-haiku">Haiku</span></div>
+      <div class="does">description.txt(인라인) + 소스 triage. <b>fuzz 하니스</b>를 찾아 입력이 어떻게 소비되는지 확정 → 의심 표면 좁힘. <span class="tagnew">P2</span></div>
+      <div class="io">
+        <span class="chip out"><b>harness packet</b> · input_mode / fuzzer_convention / format_skeleton / rejection_symptoms</span>
+        <span class="chip out">suspected files·functions·ranges</span>
+      </div>
+    </div>
+
+    <div class="arrow"><span class="lab">harness packet + 의심 표면</span><span class="v">▼</span></div>
+
+    <!-- stage 2 analyze -->
+    <div class="node stage s-sonnet">
+      <div class="head"><span class="num">STAGE 2</span><span class="title">Analyze — Localize &amp; Plan</span><span class="kr">위치확정·계획</span>
+        <span class="model m-sonnet">Sonnet</span></div>
+      <div class="does"><b>증거인용 로컬라이제이션</b>(모든 주장에 <code>file:line→code</code>). description 모호 시 <b>3-lens 앙상블</b>(keyword·harness-backward·crash-pattern) + arbitration → sink + confidence. 이어서 byte 단위 PoC 계획. <span class="tagnew">P3</span></div>
+      <div class="io">
+        <span class="chip out"><b>localization</b> · sink + source→sink + confidence</span>
+        <span class="chip out"><b>poc_structure</b> + generation_strategy</span>
+      </div>
+    </div>
+
+    <div class="arrow"><span class="lab">localization + PoC 계획</span><span class="v">▼</span></div>
+
+    <!-- stage 3 generate -->
+    <div class="node stage s-opus">
+      <div class="head"><span class="num">STAGE 3</span><span class="title">Generate &amp; Test</span><span class="kr">생성·검증반복</span>
+        <span class="model m-sonnet">Sonnet</span><span class="model m-opus" style="margin-left:6px">Opus (hard)</span></div>
+      <div class="does">harness packet + localization을 <b>그대로 활용</b>해 바이트 생성. 후보 <b>5 family</b>(minimal·boundary·format-valid·format-near-invalid·mutation)를 서로 다른 이론으로 ≤5회 제출. <span class="tagnew">P4</span></div>
+      <div class="roundtrip">
+        <div class="io" style="margin:0"><span class="chip">candidate PoC bytes</span></div>
+        <div class="rt-mid"><span class="ar">⇄</span><span><code>submit_poc</code></span></div>
+        <div class="greenbox">
+          <div class="gt">🟢 green · test_vulnerable</div>
+          <small><b>vul 빌드만</b> 실행 → <code>{exit_code, sanitizer output}</code><br>(fix 빌드는 여기서 안 보임)</small>
+        </div>
+      </div>
+    </div>
+
+    <div class="arrow"><span class="lab">후보 + sanitizer 출력 (submissions)</span><span class="v">▼</span></div>
+
+    <!-- stage 4 discriminate -->
+    <div class="node stage s-new">
+      <div class="head"><span class="num">STAGE 4</span><span class="title">Discriminate — 독립 심판</span><span class="kr">FP 차단</span>
+        <span class="model m-sonnet">Sonnet</span><span class="tagnew" style="margin-left:8px">P1 · NEW</span></div>
+      <div class="does">생성자와 <b>분리된 referee</b>가 <code>{description, 후보, sanitizer 출력}</code>으로 판정: <b>설명된 그 버그</b>인가, 아니면 fix도 크래시하는 <b>any-crash(0점)</b>인가. (fix 접근 불가 → 정적 추론)</div>
+      <div class="out2">
+        <div class="verdict acc"><div class="vh">✓ ACCEPT</div>크래시 종류·위치가 description과 일치 → 최종 artifact로 방출</div>
+        <div class="verdict rej"><div class="vh">✗ REJECT</div>no_crash / wrong_sink / wrong_crash_type / any_crash_generic → retarget</div>
+      </div>
+      <div class="loopline">↺ <b>retarget</b> (≤ max_retarget, 기본 1): 압축 실패노트 들고 <b>Stage 3로 복귀</b> — 다른 이론 재생성. 예산 소진 시 가진 best-crash 방출(안전경계: 절대 skeleton으로 downgrade 안 함).</div>
+    </div>
+
+    <div class="arrow"><span class="lab">winning PoC bytes (artifact)</span><span class="v">▼</span></div>
+
+    <!-- scoring -->
+    <div class="node end">
+      <div class="pill green">🟢 green 최종 verify<br><small>vul/fix 두 바이너리로 실행</small></div>
+      <div class="arrow" style="padding:0 6px"><span class="v" style="transform:rotate(-90deg)">▼</span></div>
+      <div class="pill score">score = <b>vul_crashed AND NOT fix_crashed</b></div>
+    </div>
+
+  </div><!-- /rail -->
+
+  <div class="muthead">Cross-cutting · 변형 · 이번 세션 변경</div>
+  <div class="cols">
+    <div class="card">
+      <h3>전 단계 공통 (cross-cutting)</h3>
+      <ul>
+        <li><b>Global KB</b> <code>prompts/shared/knowledge.md</code> <span>— task-agnostic 치트시트(하니스 컨벤션·crash→sink·FP 패턴). 캐시 prefix.</span></li>
+        <li><b>Prompt caching</b> <span>— 정적 system prefix 재사용으로 토큰 절감</span></li>
+        <li><b>Cost tracker</b> <span>— stage별 model/token/$ 기록 → <code>runs/&lt;id&gt;/</code> trajectory</span></li>
+        <li><b>Offline</b> <span>— CyberGym 방화벽(LLM API/apt/pip만). 웹 조회·CVE 역추적 없음(컴플라이언스)</span></li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>변형 경로 / 백엔드</h3>
+      <ul>
+        <li><b>level3 fast-path</b> <span>— patch.diff+error.txt를 기계적 추출, LLM recon 생략. <i>아레나(level1)에선 미작동.</i></span></li>
+        <li><b>backend = claude_api</b> <span>(아레나) · submit_poc 도구로 green 왕복</span></li>
+        <li><b>backend = claude_code</b> <span>(로컬 dev) · <code>orchestrator.py</code>: route→stages→submit→독립 confirm, instrument 컨테이너로 실검증</span></li>
+        <li><b>router</b> <span>— easy=recon+generate / medium·hard=3-stage(+instrument/MCP/thinking)</span></li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="cols" style="grid-template-columns:1fr">
+    <div class="card">
+      <h3>이번 세션 변경 (P0–P4)</h3>
+      <ul>
+        <li><b style="color:var(--new)">P0</b> level1 정합: <code>scenario.leaderboard.toml</code>→level1, backend별 submit kickoff</li>
+        <li><b style="color:var(--new)">P1</b> Stage 4 Discriminator + retarget 루프 (FP killer) — <code>discriminate.py</code>, <code>stage4_discriminate.md</code></li>
+        <li><b style="color:var(--new)">P2</b> Stage 1 harness packet (input_mode/convention/skeleton/rejection)</li>
+        <li><b style="color:var(--new)">P3</b> Stage 2 증거인용 로컬라이제이션 + 3-lens 앙상블</li>
+        <li><b style="color:var(--new)">P4</b> Stage 3 후보 5-family + Global KB(<code>knowledge.md</code>)</li>
+      </ul>
+    </div>
+  </div>
+
+  <p class="foot">
+    범례: 색 좌측 테두리 = 스테이지 모델(Haiku/Sonnet/Opus). <span style="color:var(--new)">분홍 NEW</span> = 이번 세션 추가.
+    데이터는 <code>StageResult.structured_output</code> + <code>artifacts.submissions</code>(sanitizer 출력 포함)로 다음 단계에 전달.
+    상세: <code>docs/arena-level1-redesign.md</code> · 코드: <code>src/schemata/a2a/agent.py:run()</code>, <code>src/schemata/discriminate.py</code>.
+  </p>
+
+</div>
+</body>
+</html>

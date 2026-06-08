@@ -63,6 +63,9 @@ class Settings:
             return models.get("recon", "haiku")
         if stage == "analyze":
             return models.get("analyze", "sonnet")
+        if stage == "discriminate":
+            # Independent referee — judgment quality matters more than cost; sonnet default.
+            return models.get("discriminate", "sonnet")
         return models.get("by_difficulty", {}).get(difficulty, "opus")
 
     @property

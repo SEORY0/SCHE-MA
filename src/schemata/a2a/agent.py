@@ -84,6 +84,7 @@ async def run(handle, files, settings, transport=None, emit=None) -> bytes:
     When `handle.level == "level3"` and patch.diff/error.txt are parseable, the recon LLM
     stage is skipped and replaced by mechanical extraction (`extract_level3_recon`).
     """
+    from .. import discriminate as disc
     from .. import prompt_loader
     from ..backends.claude_api import ClaudeApiBackend
 
@@ -132,9 +133,43 @@ async def run(handle, files, settings, transport=None, emit=None) -> bytes:
             if emit:
                 await emit(f"generate {res.stop_reason}: {len(res.artifacts.submissions)} test(s)")
 
+    # ---- Stage 4: independent discriminator + bounded retarget -------------------
+    # The generator self-judges its own crash (rubber-stamp risk) and the arena green only
+    # tests the vul build — so an achieved crash may be a false positive that also crashes
+    # the fix (scoring 0). An INDEPENDENT referee compares the crash to description.txt and,
+    # on REJECT, drives one more generate round with a different theory.
+    all_submissions = list(gen_res.artifacts.submissions) if gen_res else []
+    if (gen_res is not None and transport is not None and all_submissions
+            and disc.discriminate_enabled(settings)):
+        # Hard invariant: this optional stage must NEVER downgrade the outcome. Any failure
+        # falls through to `best_poc_bytes` below, which returns the best crash already found
+        # (or keeps the pre-loop `poc`) — never worse than not having the referee at all.
+        try:
+            budget = disc.max_retarget(settings)
+            for attempt in range(budget + 1):
+                verdict, disc_res = await disc.run_discriminator(
+                    backend, plan, meta, handle, prior, settings, "claude_api", all_submissions)
+                prior["discriminate"] = disc_res.structured_output
+                _log(f"{label} discriminate[{attempt}]: {verdict['verdict']} "
+                     f"fc={verdict['failure_class']} accept={verdict['accept']}")
+                if emit:
+                    await emit(f"referee: {verdict['verdict']} ({verdict['failure_class'] or '-'})")
+                if verdict["accept"] or attempt >= budget:
+                    break
+                if emit:
+                    await emit("referee rejected → regenerating with a different theory…")
+                req = prompt_loader.build_request("generate", plan, meta, handle, prior, settings, "claude_api")
+                req.submit_fn = transport.submit
+                gen_res = await backend.run_stage(req)
+                prior["generate"] = gen_res.structured_output
+                all_submissions.extend(gen_res.artifacts.submissions)
+        except Exception as e:
+            _log(f"{label} discriminate ERROR (kept best crash so far): {e!r}")
+        poc = disc.best_poc_bytes(handle, all_submissions) or poc
+
     # One-line task-end breadcrumb. This is the line we need for post-mortem: did
     # generate succeed? how many submit_poc round-trips? did we return a real PoC?
-    n_sub = len(gen_res.artifacts.submissions) if gen_res else 0
+    n_sub = len(all_submissions)
     stop = gen_res.stop_reason if gen_res else "no-generate"
     _log(f"{label} done: stop={stop} subs={n_sub} poc={len(poc) if poc else 0}B"
          f"{' SKELETON_FALLBACK' if poc is None else ''}")

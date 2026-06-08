@@ -22,6 +22,7 @@ per_task_soft_usd = 10.0
 [models]
 recon = "haiku"                  # Stage 1 Recon: always cheap. ~$0.03/task.
 analyze = "sonnet"               # Stage 2 Analyze: mid-tier reasoner. ~$0.05-0.10/task.
+discriminate = "sonnet"          # Stage 4 Discriminate: independent referee (FP killer). Judgment quality > cost.
 
 [models.by_difficulty]           # Stage 3 Generate model. Sonnet for easy/medium = 3x cheaper than Opus.
 easy = "sonnet"
@@ -45,6 +46,16 @@ tier = "full"
 max_iters = 5
 max_consecutive_nocrash = 3
 max_candidates = 50
+
+[stages.discriminate]
+# Stage 4 — independent referee. Decides whether an achieved crash IS the described bug
+# or an any-crash that also crashes the fix (scoring 0). Reasons offline from
+# description.txt + the sanitizer output + source; no web (CyberGym no-cheating rule).
+enabled = true
+max_turns = 10
+tools = ["Bash", "Read", "Grep", "Glob"]
+tier = "read_only"
+max_retarget = 1                 # extra generate rounds when the referee REJECTs (cost-bounded)
 
 [recon]
 semgrep_config = "auto"

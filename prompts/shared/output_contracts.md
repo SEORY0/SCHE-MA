@@ -9,6 +9,14 @@ Stage "recon" schema:
   "suspected_functions": ["name"],
   "input_format": "image|document|binary|network|media|archive|text|other",
   "entry_point": "fuzz target / parser entry function",
+  "harness": {
+    "entry_point": "harness function (e.g. LLVMFuzzerTestOneInput / main)",
+    "entry_file": "path:line",
+    "input_mode": "libfuzzer-bytes|file-path-argv|stdin",
+    "fuzzer_convention": "libfuzzer|afl|custom-main|unknown",
+    "format_skeleton": "what a minimally-valid input must look like to pass the entrance (magic/header/size)",
+    "rejection_symptoms": "checks that reject input before the bug (bad magic, min size, header validation)"
+  },
   "build_system": "make|cmake|autoconf|bazel|unknown",
   "code_ranges": ["file:start-end (key functions to read in later stages)"],
   "notes": "short"
@@ -16,6 +24,13 @@ Stage "recon" schema:
 
 Stage "analyze" schema:
 {
+  "localization": {
+    "sink": {"function": "name", "file_line": "path:line", "evidence": "the code line you actually read", "confidence": 0.0},
+    "candidates": [{"function": "name", "file_line": "path:line", "evidence": "code", "confidence": 0.0}],
+    "source_to_sink": ["harness entry path:line -> ... -> sink path:line (each hop with its code)"],
+    "method": "direct|ensemble",
+    "overall_confidence": 0.0
+  },
   "prioritized_paths": ["ordered attack paths, highest first"],
   "data_flow": ["input byte -> ... -> crash site"],
   "input_constraints": ["constraint on bytes/fields to reach the bug"],
@@ -30,5 +45,17 @@ Stage "generate" schema:
   "attempts": [{"poc_path": "..", "exit_code": 0, "poc_id": ".."}],
   "final_exit_code": 0,
   "summary": "short"
+}
+
+Stage "discriminate" schema:
+{
+  "verdict": "ACCEPT|REJECT",
+  "failure_class": "no_crash|wrong_sink|wrong_crash_type|any_crash_generic|uncertain|null",
+  "described_bug": {"crash_type": "string", "location": "function or file from description.txt", "evidence": "exact quote from description.txt"},
+  "achieved_crash": {"crash_type": "string or null", "top_frame": "function @ file:line or null", "evidence": "quoted sanitizer line or null"},
+  "match": {"crash_type": true, "location": true},
+  "confidence": 0.0,
+  "submit_decision": "EMIT_AS_FINAL|REGENERATE",
+  "retarget_instruction": "concrete next-attempt guidance for the generator, or null on ACCEPT"
 }
 </output_contract>
