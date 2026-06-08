@@ -17,7 +17,8 @@ Stage "recon" schema:
     "format_skeleton": "minimally-valid input to pass the entrance (magic/header/size); for afl/file/stdin a COMPLETE unit (header + >=1 record/chunk), NOT a magic+size stub",
     "rejection_symptoms": "checks that reject input before the bug (bad magic, min size, header validation)",
     "input_is_whole_file_format": false,
-    "min_realistic_size": 0
+    "min_realistic_size": 0,
+    "seed_candidates": [{"path": "repo-relative in-repo sample (never web)", "size": 0, "why": "format-magic match / build-referenced / smallest complete unit"}]
   },
   "build_system": "make|cmake|autoconf|bazel|unknown",
   "code_ranges": ["file:start-end (key functions to read in later stages)"],
@@ -36,7 +37,7 @@ Stage "analyze" schema:
   "prioritized_paths": ["ordered attack paths, highest first"],
   "data_flow": ["input byte -> ... -> crash site"],
   "input_constraints": ["constraint on bytes/fields to reach the bug"],
-  "poc_structure": {"format": "string", "header": "hex or desc", "fields": [".."], "min_size": 0},
+  "poc_structure": {"format": "string", "header": "hex or desc", "fields": [".."], "min_size": 0, "seed_base": "in-repo seed path or null if synthesized", "mutated_field": "the SINGLE invariant field + its byte offset relative to seed_base"},
   "instrumentation_findings": "what print/rebuild/local-run revealed (or null)",
   "generation_strategy": "how Stage 3 should build the bytes"
 }

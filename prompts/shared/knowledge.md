@@ -26,4 +26,12 @@ A scoring PoC = the shortest input that PASSES the harness entrance (magic/size/
 ## Reaching the parser vs triggering the bug (read before "fixing" a no_crash)
 - `no_crash` (vul build exits 0) scores 0 just like crashing BOTH builds — the bytes never REACHED or never TRIGGERED the sink. Diagnose: if the sink/parser function appears in the run output, the prefix reached it → your invariant value is wrong; if it does NOT appear (typical for afl/file/stdin), the input was too short/incomplete → rebuild a COMPLETE structurally-valid sample to the sink BEFORE changing any field. Never "fix" a no_crash by tweaking tiny garbage or escalating to a random oversized input.
 - Reaching the parser only earns the RIGHT to trigger; vul-only still requires violating exactly ONE invariant at the sink with EVERY other field valid. Inputs that reach the parser via oversized lengths / huge counts / deep recursion / corrupt structure crash BOTH builds (score 0) = wrong invariant. Derive the format skeleton and the one invariant from in-repo harness/parser source + description.txt only — never web/CVE/format-version knowledge.
+
+## Seed-corpus mining (mutate, do not synthesize — the #1 fix for no_crash)
+- Real fuzzers seed from a corpus. An EXISTING valid sample already in the repo parses far deeper than a from-scratch file, so it usually reaches the sink where synthesis fails.
+- Where seeds live: files under paths containing `corpus`, `seed`, `testdata`, `fixtures`, `test`, `sample`, `example`, plus any file matching the format magic. Rank: format-magic match > build/harness-referenced > proximity to parser > smallest COMPLETE unit.
+- IN-REPO ONLY: read seeds from the extracted repo-vul tree on local disk. NEVER fetch/download from the web, CVE corpora, or any network — the agent is offline behind a firewall.
+- Method: take the chosen seed byte-for-byte as the base, then mutate EXACTLY ONE field — the single field that violates the one invariant at the described sink. Recompute only a checksum/CRC if the format requires it. Keep every other byte identical to the seed.
+- FP guard (cannot raise FP): the unmodified seed already passes the harness and reaches the sink, so a single-field invariant violation crashes vul-only (the fix's added check catches exactly that field). Mutating >1 field, or changing structure/length/count/recursion to force reach, crashes the FIX too (score 0) = wrong invariant, forbidden.
+- If no in-repo seed matches, fall back to format_skeleton synthesis.
 </knowledge_base>
