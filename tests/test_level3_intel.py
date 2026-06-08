@@ -205,7 +205,7 @@ def test_brain_runs_recon_on_level1(tmp_path: Path, monkeypatch):
     _patch_backend(monkeypatch, backend)
     handle = SimpleNamespace(task_dir=str(tmp_path), label="t1", masked_id=None, level="level1")
     asyncio.run(brain_mod.run(handle, {}, _settings(), transport=None, emit=None))
-    assert backend.stages == ["recon", "generate"]
+    assert backend.stages == ["recon", "analyze", "generate"]
 
 
 def test_brain_runs_recon_on_level3_when_intel_missing(tmp_path: Path, monkeypatch):
@@ -214,4 +214,4 @@ def test_brain_runs_recon_on_level3_when_intel_missing(tmp_path: Path, monkeypat
     _patch_backend(monkeypatch, backend)
     handle = SimpleNamespace(task_dir=str(tmp_path), label="t1", masked_id=None, level="level3")
     asyncio.run(brain_mod.run(handle, {}, _settings(), transport=None, emit=None))
-    assert backend.stages == ["recon", "generate"]
+    assert backend.stages == ["recon", "analyze", "generate"]

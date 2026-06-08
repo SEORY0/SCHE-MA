@@ -33,9 +33,11 @@ def test_run_skeleton_returns_placeholder():
 def test_a2a_plan_shape():
     settings = SimpleNamespace(model_for=lambda stage, diff: f"{stage}-{diff}")
     plan = _a2a_plan(settings, difficulty="hard")
-    assert plan.stages == ["recon", "generate"]
+    assert plan.stages == ["recon", "analyze", "generate"]
     assert plan.difficulty == "hard"
-    assert plan.stage_models == {"recon": "recon-hard", "generate": "generate-hard"}
+    assert plan.stage_models == {
+        "recon": "recon-hard", "analyze": "analyze-hard", "generate": "generate-hard",
+    }
     # arena has no local instrument / mcp / minimization
     assert plan.has_instrument is False
     assert plan.has_mcp_index is False
@@ -132,6 +134,7 @@ def test_run_returns_poc_bytes_from_generate(tmp_path: Path, monkeypatch):
     poc = tmp_path / "final.bin"; poc.write_bytes(b"PWN")
     results = {
         "recon": StageResult(stage="recon", structured_output={"summary": "heap-bof"}),
+        "analyze": StageResult(stage="analyze", structured_output={"plan": "len=1 LOOP"}),
         "generate": StageResult(stage="generate",
                                 stop_reason="crash_found",
                                 artifacts=Artifacts(poc_path=str(poc))),
@@ -147,19 +150,20 @@ def test_run_returns_poc_bytes_from_generate(tmp_path: Path, monkeypatch):
     assert out == b"PWN"
 
     stages = [c.stage for c in fb.calls]
-    assert stages == ["recon", "generate"]
+    assert stages == ["recon", "analyze", "generate"]
     # no transport -> submit_fn stays unset
     gen_req = next(c for c in fb.calls if c.stage == "generate")
     assert gen_req.submit_fn is None
     # generate stage saw recon's structured_output threaded in
     # (the patched build_request ignores `prior`, but run() must still pass it; the
     # real check is that emit was called for each stage)
-    assert len(emits) == 3  # 2 stage starts + 1 generate-summary
+    assert len(emits) == 4  # 3 stage starts + 1 generate-summary
 
 
 def test_run_wires_submit_fn_when_transport_set(tmp_path: Path, monkeypatch):
     results = {
         "recon": StageResult(stage="recon"),
+        "analyze": StageResult(stage="analyze"),
         "generate": StageResult(stage="generate",
                                 artifacts=Artifacts(poc_path=str(tmp_path / "p"))),
     }
@@ -182,6 +186,7 @@ def test_run_wires_submit_fn_when_transport_set(tmp_path: Path, monkeypatch):
 def test_run_falls_back_to_skeleton_when_no_poc(tmp_path: Path, monkeypatch):
     results = {
         "recon": StageResult(stage="recon"),
+        "analyze": StageResult(stage="analyze"),
         "generate": StageResult(stage="generate", artifacts=Artifacts()),  # no poc, no submissions
     }
     _patch_brain(monkeypatch, _FakeBackend(results))

@@ -50,9 +50,19 @@ class Settings:
         return self.raw.get("stages", {}).get(stage, {})
 
     def model_for(self, stage: str, difficulty: str) -> str:
+        """Pick the model alias per stage, cost-optimized.
+
+        Recon is always the cheapest model (haiku) — it's narrowing, not reasoning.
+        Analyze is a mid-tier reasoner (sonnet by default) — explores the narrowed surface
+        and produces the byte-level PoC plan that generate executes.
+        Generate is difficulty-dependent: easy/medium fall to sonnet (3x cheaper than opus),
+        hard escalates to opus for the final crafting + iteration loop.
+        """
         models = self.raw.get("models", {})
         if stage == "recon":
             return models.get("recon", "haiku")
+        if stage == "analyze":
+            return models.get("analyze", "sonnet")
         return models.get("by_difficulty", {}).get(difficulty, "opus")
 
     @property

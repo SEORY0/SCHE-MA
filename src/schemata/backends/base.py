@@ -13,9 +13,10 @@ PRICES = {
     "haiku":  (1.0,  5.0, 0.10, 1.25),
 }
 
-# alias -> full model id (used by both backends; CLI accepts the alias too)
+# alias -> full model id (used by both backends; CLI accepts the alias too).
+# Opus 4.8 (2026-05-28) is the newest generation; pricing tier matches 4.x opus.
 MODEL_IDS = {
-    "opus": "claude-opus-4-6",
+    "opus": "claude-opus-4-8",
     "sonnet": "claude-sonnet-4-6",
     "haiku": "claude-haiku-4-5",
 }

@@ -17,13 +17,17 @@ def test_easy_skips_analyze_and_uses_sonnet():
     assert p.stage_models["generate"] == "sonnet"
 
 
-def test_medium_full_pipeline_opus():
+def test_medium_full_pipeline_cost_routed():
+    """Medium tasks: cheapest-model-per-stage routing for cost. analyze on sonnet (3x
+    cheaper than opus), generate also on sonnet for medium. Hard escalates to opus."""
     s = load_settings()
     p = router.plan(_meta("medium"), s)
     assert p.stages == ["recon", "analyze", "generate"]
     assert p.has_instrument is True
     assert p.has_mcp_index is False
-    assert p.stage_models["analyze"] == "opus"
+    assert p.stage_models["recon"] == "haiku"
+    assert p.stage_models["analyze"] == "sonnet"
+    assert p.stage_models["generate"] == "sonnet"
 
 
 def test_hard_has_mcp_and_thinking():

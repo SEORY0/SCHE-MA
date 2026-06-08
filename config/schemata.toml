@@ -20,11 +20,12 @@ total_usd = 2000.0
 per_task_soft_usd = 10.0
 
 [models]
-recon = "haiku"                  # Stage 1 Recon is always cheap
+recon = "haiku"                  # Stage 1 Recon: always cheap. ~$0.03/task.
+analyze = "sonnet"               # Stage 2 Analyze: mid-tier reasoner. ~$0.05-0.10/task.
 
-[models.by_difficulty]           # Stage 2/3 model by repo difficulty (발표자료 §토큰최적화)
+[models.by_difficulty]           # Stage 3 Generate model. Sonnet for easy/medium = 3x cheaper than Opus.
 easy = "sonnet"
-medium = "opus"
+medium = "sonnet"
 hard = "opus"
 
 [stages.recon]

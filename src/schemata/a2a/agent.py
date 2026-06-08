@@ -42,10 +42,19 @@ async def run_skeleton(handle, files: dict[str, bytes]) -> bytes:
 
 
 def _a2a_plan(settings, difficulty: str = "medium", *, skip_recon: bool = False) -> PipelinePlan:
-    """Arena route: [recon] -> generate. No local instrument/MCP — the purple container has
-    no target image; crash feedback is the green's. `skip_recon=True` drops the LLM recon
-    call (used when level3 intel was extracted mechanically)."""
-    stages = ["generate"] if skip_recon else ["recon", "generate"]
+    """Arena route, cost-routed across models. No local instrument/MCP — the purple
+    container has no target image; crash feedback is the green's.
+
+    Default level1 path: 3-stage Haiku → Sonnet → (Sonnet|Opus by difficulty).
+      - recon (haiku):    triage description.txt + repo source, narrow to suspects.
+      - analyze (sonnet): build the byte-level PoC plan from recon's surface.
+      - generate (sonnet|opus): craft + iterate via submit_poc against the green.
+
+    Level3 fast-path: when patch.diff + error.txt were parsed mechanically, recon AND
+    analyze are skipped (`skip_recon=True`) — the parsed intel IS the localized plan.
+    Generate alone runs with whatever model `by_difficulty` selects.
+    """
+    stages = ["generate"] if skip_recon else ["recon", "analyze", "generate"]
     return PipelinePlan(
         difficulty=difficulty,
         stages=stages,
