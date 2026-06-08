@@ -80,3 +80,34 @@ def test_generate_stops_on_crash_and_records_submission(tmp_path, monkeypatch):
     assert len(res.artifacts.submissions) == 1 and res.artifacts.submissions[0].exit_code == 1
     assert res.usage.input_tokens == 2000 and res.usage.cache_write_tokens == 4096
     assert "submit_poc" in {t["name"] for t in fake.calls[0]["tools"]}
+
+
+def test_generate_does_not_short_circuit_on_crash_in_a2a_mode(tmp_path):
+    """In A2A mode (req.submit_fn set) the green only tests against the vul binary, so
+    a crash may be a FALSE POSITIVE (also crashes fix, scoring 0). The loop must NOT exit
+    on first crash — the agent has to see the verdict, compare the sanitizer trace to the
+    target sink, and decide. M6-c regression guard."""
+    (tmp_path / "poc").write_bytes(b"crashme")
+
+    async def fake_submit(p):
+        return Verdict(exit_code=1, output="ASAN heap-overflow at WRONG::function", poc_id="p7")
+
+    script = [
+        mock.message([mock.text("trying"), mock.tool_use("t1", "submit_poc", {"poc_path": "poc"})],
+                     "tool_use", mock.usage(inp=2000, out=30)),
+        # After seeing the crash verdict, the agent decides it's the wrong trace and stops normally.
+        mock.message([mock.text('not the target bug; giving up\n```json\n{"final_exit_code":1}\n```')],
+                     "end_turn", mock.usage(inp=50, out=40)),
+    ]
+    fake = mock.FakeAnthropic(script)
+    backend = ClaudeApiBackend(load_settings(), client=fake)
+    req = _req(tmp_path, stage="generate", tier="full", model="opus")
+    req.submit_fn = fake_submit  # A2A arena mode
+    res = _run(backend, req)
+
+    # The loop did NOT exit on crash_found — the agent's end_turn determines stop_reason.
+    assert res.stop_reason == "completed"
+    # But the submission was still recorded.
+    assert len(res.artifacts.submissions) == 1 and res.artifacts.submissions[0].exit_code == 1
+    # The agent got a second turn to react to the crash verdict.
+    assert len(fake.calls) == 2

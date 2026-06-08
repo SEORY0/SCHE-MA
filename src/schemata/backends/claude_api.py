@@ -107,7 +107,13 @@ class ClaudeApiBackend(AgentBackend):
                 })
             messages.append({"role": "user", "content": results})
 
-            if disp.crash_found:
+            # In local mode the cybergym server's "crashed" verdict IS the scoring signal,
+            # so we can stop immediately. In A2A (arena) mode the green only tests against
+            # the vul binary — a crash there might be a false positive (also crashes fix,
+            # scoring 0). Let the agent see the verdict, compare the sanitizer trace to
+            # error_intel.summary, and decide whether to stop or refine. max_iters bounds
+            # the loop. See prompts/stage3_generate.md, critical_scoring_rule.
+            if disp.crash_found and req.submit_fn is None:
                 stop = "crash_found"
                 break
             if disp.should_early_stop():
