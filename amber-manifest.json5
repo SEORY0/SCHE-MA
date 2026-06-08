@@ -15,6 +15,10 @@
       // object form silently dropped the env var (cost: a leaderboard run scored 1/10 via
       // SKELETON fallback because anthropic.AsyncAnthropic init had no key).
       ANTHROPIC_API_KEY: "${config.anthropic_api_key}",
+      // Amber compose strips image ENV defaults, so the Dockerfile's `ENV SCHEMATA_ROOT=/app`
+      // is invisible to the container at runtime. Without this, config/schemata.toml and
+      // prompts/ are not found and load_settings() throws → executor falls to SKELETON_POC.
+      SCHEMATA_ROOT: "/app",
       LOG_LEVEL: "INFO",
     },
     network: {
