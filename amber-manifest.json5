@@ -11,7 +11,10 @@
     ],
     env: {
       // M6-b: the Claude API backend (recon->generate pipeline) requires this key.
-      ANTHROPIC_API_KEY: { when: "config.anthropic_api_key", value: "${config.anthropic_api_key}" },
+      // Canonical amber pattern is a bare ${config.x} string — the prior `{ when, value }`
+      // object form silently dropped the env var (cost: a leaderboard run scored 1/10 via
+      // SKELETON fallback because anthropic.AsyncAnthropic init had no key).
+      ANTHROPIC_API_KEY: "${config.anthropic_api_key}",
       LOG_LEVEL: "INFO",
     },
     network: {

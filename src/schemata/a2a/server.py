@@ -63,6 +63,14 @@ def main() -> None:
         level=os.environ.get("LOG_LEVEL", "INFO"),
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+    # Startup banner — confirms the manifest's env wiring (esp. ANTHROPIC_API_KEY). If this
+    # logs "anthropic_key=False" at runtime, no API calls will succeed and the brain will
+    # submit SKELETON_POC for every task; see amber-manifest.json5.
+    ak = os.environ.get("ANTHROPIC_API_KEY") or ""
+    logging.getLogger(__name__).info(
+        "SCHE-MA A2A purple starting: host=%s port=%d anthropic_key=%s (len=%d, prefix=%s)",
+        args.host, args.port, bool(ak), len(ak), (ak[:10] + "…") if ak else "",
+    )
     uvicorn.run(
         build_app(host=args.host, port=args.port, card_url=args.card_url),
         host=args.host, port=args.port, timeout_keep_alive=3600,

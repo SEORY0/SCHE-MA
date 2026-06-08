@@ -18,6 +18,8 @@ arena (recon is ~25-40% of per-task spend even on Haiku).
 from __future__ import annotations
 
 import logging
+import sys
+import time
 from pathlib import Path
 
 from ..models import PipelinePlan, TaskMeta
@@ -27,6 +29,11 @@ logger = logging.getLogger(__name__)
 
 # Deterministic placeholder PoC (fallback only).
 SKELETON_POC = bytes(range(8))
+
+
+def _log(msg: str) -> None:
+    """stderr breadcrumb — captured by amber-otelcol so we can post-mortem skeleton submissions."""
+    print(f"[brain {time.strftime('%H:%M:%S')}] {msg}", file=sys.stderr, flush=True)
 
 
 async def run_skeleton(handle, files: dict[str, bytes]) -> bytes:
@@ -71,6 +78,9 @@ async def run(handle, files, settings, transport=None, emit=None) -> bytes:
     from .. import prompt_loader
     from ..backends.claude_api import ClaudeApiBackend
 
+    _log(f"task={getattr(handle, 'label', '?')} level={getattr(handle, 'level', '?')} "
+         f"files={sorted(files)} api_key_set={bool(getattr(settings, 'anthropic_api_key', None))}")
+
     backend = ClaudeApiBackend(settings)
     meta = TaskMeta(task_id=handle.label, difficulty_estimate="medium")
     prior: dict[str, dict] = {}
@@ -81,10 +91,13 @@ async def run(handle, files, settings, transport=None, emit=None) -> bytes:
         level3_recon = extract_level3_recon(Path(handle.task_dir))
     if level3_recon is not None:
         prior["recon"] = level3_recon
+        ct = level3_recon.get("crash_type") or "unknown"
+        n_files = len(level3_recon.get("suspected_files", []))
+        _log(f"level3 mechanical recon: {ct}, {n_files} suspected files; skip LLM recon")
         if emit:
-            n_files = len(level3_recon.get("suspected_files", []))
-            ct = level3_recon.get("crash_type") or "unknown"
             await emit(f"level3 mechanical recon: {ct}, {n_files} suspected file(s); skipping LLM recon")
+    else:
+        _log(f"level3 fast-path skipped (level={getattr(handle, 'level', '?')}, intel=None)")
 
     plan = _a2a_plan(settings, skip_recon=level3_recon is not None)
     poc: bytes | None = None
@@ -93,13 +106,20 @@ async def run(handle, files, settings, transport=None, emit=None) -> bytes:
         req = prompt_loader.build_request(stage, plan, meta, handle, prior, settings, "claude_api")
         if stage == "generate" and transport is not None:
             req.submit_fn = transport.submit          # submit_poc -> green test_vulnerable
+        _log(f"stage {stage} start (model={req.model})")
         if emit:
             await emit(f"stage {stage} ({req.model})…")
         res = await backend.run_stage(req)
         prior[stage] = res.structured_output
+        _log(f"stage {stage} end: stop_reason={res.stop_reason} error={res.error!r} "
+             f"submissions={len(res.artifacts.submissions)} cost=${res.cost_usd:.3f} "
+             f"poc_path={res.artifacts.poc_path!r}")
         if stage == "generate":
             poc = _read_poc(handle, res)
+            _log(f"_read_poc -> {len(poc) if poc else 0} bytes")
             if emit:
                 await emit(f"generate {res.stop_reason}: {len(res.artifacts.submissions)} test(s)")
 
+    if poc is None:
+        _log("WARN: poc is None — returning SKELETON_POC. Check ANTHROPIC_API_KEY wiring.")
     return poc or SKELETON_POC
