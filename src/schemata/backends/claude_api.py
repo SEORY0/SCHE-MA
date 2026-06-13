@@ -41,6 +41,20 @@ def _text_of(msg) -> str:
     )
 
 
+# Forces the contract JSON when a stage burned its whole tool budget (or finished talking)
+# without ever emitting it — see the flush block in run_stage.
+_FLUSH_MSG = (
+    "You have used your tool budget — do NOT call any more tools. Emit ONLY the final JSON "
+    "block required by this stage's output contract, right now, from what you ACTUALLY found. "
+    "Rules: (1) ALWAYS fill `vuln_classes` by classifying description.txt against the menu — "
+    "that needs no code reading. (2) For localization fields (suspected_files, "
+    "suspected_functions, sink, harness): include ONLY what you genuinely verified and leave "
+    "the rest empty — do NOT invent a sink/file you did not confirm. A later, stronger stage "
+    "finishes localization, and a confident wrong guess would mislead it; an empty field "
+    "correctly signals 'not found yet'. Emit the JSON object now."
+)
+
+
 class ClaudeApiBackend(AgentBackend):
     name = "claude_api"
 
@@ -125,6 +139,36 @@ class ClaudeApiBackend(AgentBackend):
 
         cost = cost_of(usage, req.model)
         structured = extract_last_json(last_text)
+
+        # JSON-flush fallback: a multi-turn stage can burn its entire tool budget exploring and
+        # exit (stop_reason=max_turns) — or finish talking — without ever emitting its contract
+        # JSON, leaving structured_output empty and starving the next stage (e.g. recon on a huge
+        # repo never emits vuln_classes, so Stage-3 example injection gets nothing). One final
+        # no-tools turn forces the deliverable from what it already found. Cheap (no tool calls)
+        # and only fires when we'd otherwise return empty.
+        if not structured and stop in ("max_turns", "completed") and error is None:
+            try:
+                if (messages and messages[-1]["role"] == "user"
+                        and isinstance(messages[-1]["content"], list)):
+                    messages[-1]["content"].append({"type": "text", "text": _FLUSH_MSG})
+                else:
+                    messages.append({"role": "user", "content": _FLUSH_MSG})
+                prompt_cache.with_breakpoints(messages)
+                flush_params = {k: v for k, v in params.items() if k != "thinking"}
+                async with self.client.messages.stream(
+                    system=system, tools=toolset, tool_choice={"type": "none"},
+                    messages=messages, **flush_params,
+                ) as stream:
+                    fmsg = await stream.get_final_message()
+                usage = usage + _usage_of(fmsg, req.model)
+                cost = cost_of(usage, req.model)
+                ftext = _text_of(fmsg)
+                if ftext:
+                    last_text = ftext
+                    structured = extract_last_json(ftext) or structured
+            except Exception:
+                pass  # keep the empty structured — no worse than before the flush
+
         artifacts = Artifacts(submissions=disp.submissions)
         if req.stage == "generate":
             artifacts.poc_path = disp.winning_poc or structured.get("winning_poc_path")

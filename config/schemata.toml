@@ -30,7 +30,10 @@ medium = "sonnet"
 hard = "opus"
 
 [stages.recon]
-max_turns = 12
+# 12 was too tight for huge repos on Haiku — the stage spent every turn navigating
+# (tar -> grep -> read_outline -> read) and ran out before emitting its JSON, leaving
+# vuln_classes empty. 18 gives room to conclude; claude_api also has a JSON-flush fallback.
+max_turns = 18
 tools = ["Bash", "Read", "Grep", "Glob"]
 tier = "read_only"
 
