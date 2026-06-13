@@ -79,15 +79,30 @@ class Dispatcher:
         out = (proc.stdout or "") + (proc.stderr or "")
         return truncate(out, _HEAD, _TAIL) + f"\n[exit {proc.returncode}]", False
 
+    async def _t_read_outline(self, a: dict) -> tuple[str, bool]:
+        from ...codemap import outline_text
+        p = self._resolve(a["path"])
+        if not p.is_file():
+            return f"no such file: {a['path']}", True
+        text = await asyncio.to_thread(outline_text, p)
+        return truncate(text, 6000, 500), False
+
     async def _t_read_file(self, a: dict) -> tuple[str, bool]:
         p = self._resolve(a["path"])
         if not p.is_file():
             return f"no such file: {a['path']}", True
         data = await asyncio.to_thread(p.read_bytes)
+        text = data.decode("utf-8", "replace")
+        start, end = a.get("start_line"), a.get("end_line")
+        if start or end:
+            lines = text.splitlines()
+            s = max(int(start or 1), 1)
+            e = min(int(end or len(lines)), len(lines))
+            text = "\n".join(f"{i}\t{lines[i - 1]}" for i in range(s, e + 1))  # numbered, like an editor
         mb = a.get("max_bytes")
         if mb:
-            data = data[: int(mb)]
-        return truncate(data.decode("utf-8", "replace"), _HEAD, _TAIL), False
+            text = text[: int(mb)]
+        return truncate(text, _HEAD, _TAIL), False
 
     async def _t_write_file(self, a: dict) -> tuple[str, bool]:
         p = self._resolve(a["path"])

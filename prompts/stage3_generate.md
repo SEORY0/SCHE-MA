@@ -5,6 +5,8 @@
 - Instrument container (if any): {{instrument_container}}
 - Prior stage results (JSON; recon may carry `patch_intel`/`error_intel` ground-truth at level3):
 {{prior_json}}
+- **Atomic vulnerability Example(V_i)** for the classified type(s) — these are the canonical minimum-margin, single-invariant recipes for your `vuln_classes`. Build the PoC from them and obey each FP guard:
+{{vuln_examples}}
 </task_context>
 
 <critical_scoring_rule>

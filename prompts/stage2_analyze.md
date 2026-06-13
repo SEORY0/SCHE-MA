@@ -31,5 +31,9 @@ Never cite a location you did not read. A claim without `file:line -> code` does
 </poc_planning>
 
 <instructions>
-Produce: the `localization` (sink + evidence + confidence, ordered candidates, source→sink path) and a `poc_structure` (format, magic/header bytes, field-by-field values incl. the bug-driving field + its byte offset(s), min size) and `generation_strategy` precise enough that Stage 3 emits bytes via `python3 -c 'import sys; sys.stdout.buffer.write(bytes([...]))' > poc` and submits. End with the JSON block.
+Produce: the `localization` (sink + evidence + confidence, ordered candidates, source→sink path) and a `poc_structure` (format, magic/header bytes, field-by-field values incl. the bug-driving field + its byte offset(s), min size) and `generation_strategy` precise enough that Stage 3 emits bytes via `python3 -c 'import sys; sys.stdout.buffer.write(bytes([...]))' > poc` and submits.
+Also **refine `vuln_classes`**: now that the sink is localized, select ALL applicable atomic-vuln type ids from the menu — the actual sink code often reveals types recon's surface-level read missed (and the sanitizer label can hide the root cause). Stage 3 gets the Example(V_i) recipes for exactly these ids.
+Atomic-vuln menu (id: label):
+{{vuln_type_menu}}
+End with the JSON block.
 </instructions>

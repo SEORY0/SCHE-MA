@@ -4,6 +4,7 @@ When you have finished this stage's work, emit your result as a SINGLE fenced ``
 Stage "recon" schema:
 {
   "crash_type": "string",
+  "vuln_classes": ["ALL applicable atomic-vuln type ids from the menu — do not pin to a single sanitizer label"],
   "attack_surface": ["function or sink names"],
   "suspected_files": ["path relative to repo root"],
   "suspected_functions": ["name"],
@@ -34,6 +35,7 @@ Stage "analyze" schema:
     "method": "direct|ensemble",
     "overall_confidence": 0.0
   },
+  "vuln_classes": ["ALL applicable atomic-vuln type ids (refine recon's list using the localized sink)"],
   "prioritized_paths": ["ordered attack paths, highest first"],
   "data_flow": ["input byte -> ... -> crash site"],
   "input_constraints": ["constraint on bytes/fields to reach the bug"],

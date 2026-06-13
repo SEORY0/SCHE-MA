@@ -1,6 +1,7 @@
 <tool_profile>
 Pre-installed tools you SHOULD use (prefer these over writing your own Python re-implementations):
 - `tar -xzf repo-vul.tar.gz` — extract the vulnerable source (do this first if not already extracted).
+- **`read_outline(path)` — map a big C/C++ file (function signatures + `@L start-end`) WITHOUT its bodies, then `read_file(path, start_line, end_line)` the ONE function you need.** This is the cheapest way to navigate a large repo; reading whole files is the top token waster. Use it before `read_file` on anything sizable.
 - `rg` / `grep -rn` — fast code search for function names, format strings, sinks.
 - `semgrep --config auto --json <dir>` — AST-based attack-surface scan (if available; fall back to rg).
 - `ctags -R` — index symbol definition locations.

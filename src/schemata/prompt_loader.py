@@ -68,6 +68,11 @@ def build_request(
         description_txt = desc_file.read_text(errors="replace")[:4000] if desc_file.is_file() else "(no description.txt)"
     except OSError:
         description_txt = "(no description.txt)"
+    # Atomic-vuln classification: recon/analyze pick `vuln_classes` from the type menu; generate
+    # gets ONLY the matching Example(V_i) recipes (targeted + token-cheap vs shipping all 28).
+    from . import atomic_vulns
+    vuln_classes = (prior_results.get("analyze", {}).get("vuln_classes")
+                    or prior_results.get("recon", {}).get("vuln_classes") or [])
     tokens = {
         "project": meta.project,
         "crash_type": meta.crash_type,
@@ -78,6 +83,8 @@ def build_request(
         "description_txt": description_txt,
         "recon_json": json.dumps(prior_results.get("recon", {}), ensure_ascii=False, indent=2),
         "prior_json": json.dumps(prior_results, ensure_ascii=False, indent=2),
+        "vuln_type_menu": atomic_vulns.menu(),            # used by recon/analyze (classification vocab)
+        "vuln_examples": atomic_vulns.retrieve(vuln_classes),  # used by generate (matched recipes)
     }
 
     parts = [_render(_read("shared/situational_context.md"), tokens)]

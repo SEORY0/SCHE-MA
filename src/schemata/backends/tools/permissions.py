@@ -33,7 +33,7 @@ _ENV_ASSIGN = re.compile(r"^\w+=\S*$")
 def tools_for(req: StageRequest) -> list[dict]:
     """Return the Messages-API tool definitions this stage+tier may use."""
     tier = req.permission_tier
-    names = ["read_file", "grep", "glob", "bash", "semgrep_scan"]
+    names = ["read_outline", "read_file", "grep", "glob", "bash", "semgrep_scan"]
     if tier in ("write", "full"):
         names.append("write_file")
     if req.instrument_container:

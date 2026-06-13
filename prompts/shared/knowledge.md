@@ -17,21 +17,8 @@
 - NULL-deref / SEGV: missing NULL check after a failing alloc/lookup/parse.
 - integer-overflow: `malloc(a*b)` / `len + k` that wraps, yielding a small alloc then a large copy.
 
-## How to TRIGGER each class (minimum-margin, single-invariant — the no_crash fix)
-The fix adds ONE check on ONE field. Keep a valid base that REACHES the sink (prefer mutating an in-repo seed) and violate ONLY that field by the MINIMUM margin (over-by-one / first-illegal / smallest-wrapping). Oversized/corrupt inputs crash the FIXED build too = score 0.
-- heap-buffer-overflow READ: read offset/index = len+1, where len is the buffer's own (smaller) size field.
-- heap-buffer-overflow WRITE: source length = capacity+1 (one byte past the allocation).
-- stack-buffer-overflow: a subfield exactly N+1 bytes into a fixed `buf[N]`.
-- global-buffer-overflow: index = table_len (first out-of-range).
-- use-after-free: drive the error/realloc path that frees `p`, then a FOLLOWING valid record re-references the same id/handle (both parse; the crash is the ordering).
-- double-free: walk the free path twice (duplicate id / repeated end-marker / error after a partial free).
-- OOB read/write: offset / seek / length = end+1.
-- integer-overflow: the smallest field pair whose product/sum wraps past SIZE_MAX → tiny malloc, then the loop writes `count` elements.
-- type-confusion: a valid type-A object with the type tag set to B.
-- uninitialized-use (MSAN): OMIT an optional subfield (format-legal) so a value is read before it is set.
-- null-deref / SEGV: drive a lookup/alloc to legitimately return NULL, then a valid path dereferences it.
-- container-overflow: index = size() (one past the live elements).
-- alloc-dealloc-mismatch: a valid variant hitting the array-vs-scalar branch with mismatched teardown.
+## Minimum-margin, single-invariant (the no_crash fix)
+The fix adds ONE check on ONE field. Keep a valid base that REACHES the sink (prefer mutating an in-repo seed) and violate ONLY that field by the MINIMUM margin (over-by-one / first-illegal / smallest-wrapping). Oversized/corrupt inputs crash the FIXED build too = score 0. The per-type construction recipe — Example(V_i) for your classified `vuln_classes` — is injected into Stage 3; follow it for the exact field to violate.
 
 After a submit: sink IN the trace but no crash → the field VALUE is wrong (move the SAME field one more step); sink ABSENT from the trace → the base never reached it (rebuild a valid base / use a seed), do NOT touch the invariant yet.
 

@@ -28,14 +28,33 @@ BASH = {
     },
 }
 
-READ_FILE = {
-    "name": "read_file",
-    "description": "Read a UTF-8 text file from the task directory. Prefer reading only the "
-                   "function/region you need; large files are truncated.",
+READ_OUTLINE = {
+    "name": "read_outline",
+    "description": (
+        "Map a source file WITHOUT reading its bodies: returns one line per function/struct "
+        "(signature + `@L start-end`). Use this FIRST on any large C/C++ file, then `read_file` "
+        "the one function range you need. Reading whole large files is the top token waster."
+    ),
     "input_schema": {
         "type": "object",
         "properties": {
             "path": {"type": "string", "description": "Path relative to the task directory."},
+        },
+        "required": ["path"],
+    },
+}
+
+READ_FILE = {
+    "name": "read_file",
+    "description": "Read a UTF-8 text file. Prefer a line range (from `read_outline`) over the "
+                   "whole file: pass `start_line`/`end_line` to read just one function. Large "
+                   "reads are truncated.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "path": {"type": "string", "description": "Path relative to the task directory."},
+            "start_line": {"type": "integer", "description": "1-based first line to read (with end_line)."},
+            "end_line": {"type": "integer", "description": "1-based last line to read (inclusive)."},
             "max_bytes": {"type": "integer", "description": "Optional cap on bytes returned."},
         },
         "required": ["path"],
@@ -152,7 +171,7 @@ MCP_CODE_QUERY = {
 ALL_TOOLS: dict[str, dict] = {
     t["name"]: t
     for t in (
-        BASH, READ_FILE, WRITE_FILE, GREP, GLOB, SEMGREP_SCAN,
+        BASH, READ_OUTLINE, READ_FILE, WRITE_FILE, GREP, GLOB, SEMGREP_SCAN,
         ARVO_COMPILE, ARVO_RUN, SUBMIT_POC, MCP_CODE_QUERY,
     )
 }

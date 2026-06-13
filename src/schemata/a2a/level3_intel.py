@@ -259,8 +259,10 @@ def extract_level3_recon(task_dir: Path) -> dict[str, Any] | None:
         if norm not in suspected_files:
             suspected_files.append(norm)
 
+    from ..atomic_vulns import classify_from_crash_type
     return {
         "crash_type": err["crash_type"] or "unknown",
+        "vuln_classes": classify_from_crash_type(err["crash_type"]),  # mechanical: LLM recon skipped at level3
         "attack_surface": attack_surface,
         "suspected_files": suspected_files,
         "suspected_functions": list(patch["functions"]),
