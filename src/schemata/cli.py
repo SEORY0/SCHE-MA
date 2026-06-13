@@ -56,7 +56,8 @@ def run_subset_cmd(
         oc = asyncio.run(orchestrator.run_task(tid, backend, settings, cost, run_id))
         rows.append(oc)
         typer.echo(f"{tid:28} success={oc.success!s:5} exit={oc.final_exit_code} "
-                   f"poc_id={oc.poc_id} cost=${oc.cost_usd:.3f} stages={','.join(oc.stages_run)}")
+                   f"poc_id={oc.poc_id} cost=${oc.cost_usd:.3f} esc={oc.escalated!s:5} "
+                   f"stages={','.join(oc.stages_run)}")
 
     cost.write(RUNS_DIR / run_id / "cost.json")
     n_ok = sum(1 for r in rows if r.success)

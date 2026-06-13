@@ -21,6 +21,21 @@ def _safe(task_id: str) -> str:
     return task_id.replace(":", "_").replace("/", "_")
 
 
+def _recon_localized(recon_output: dict | None) -> bool:
+    """Did cheap (Haiku) recon actually narrow the bug LOCATION? Drives bounded escalation.
+
+    Localized = it named a suspect file/function OR pinned the harness entry point. Note:
+    `vuln_classes` alone does NOT count — that is description.txt classification (no code
+    reading), which the JSON-flush fallback recovers even when recon never localized. The
+    escalation we gate here is specifically about *localization*, which needs a stronger model.
+    """
+    so = recon_output or {}
+    if so.get("suspected_files") or so.get("suspected_functions") or so.get("entry_point"):
+        return True
+    harness = so.get("harness")
+    return bool(isinstance(harness, dict) and harness.get("entry_point"))
+
+
 async def run_task(
     task_id: str,
     backend_name: str,
@@ -55,7 +70,15 @@ async def run_task(
     winning_poc: str | None = None
 
     try:
-        for stage in plan.stages:
+        # `stages` is a working copy so we can PROMOTE analyze mid-run (bounded escalation):
+        # recon is cheap, fast triage on Haiku, not the definitive localizer. When it comes
+        # up empty (the "easy" route skips analyze entirely), the right move is one capable
+        # localization stage — NOT looping more Haiku turns (capability ceiling, and "found
+        # it" isn't verifiable until a crash). We escalate at most once, before generate.
+        stages = list(plan.stages)
+        i = 0
+        while i < len(stages):
+            stage = stages[i]
             req = build_request(
                 stage, plan, meta, handle, prior, settings, backend_name,
                 instrument_container=(container.name if container else None),
@@ -77,11 +100,31 @@ async def run_task(
                 "transcript_tail": res.raw_transcript_tail,
             }, indent=2, ensure_ascii=False))
 
+            # Bounded escalation: cheap recon failed to localize and the plan has no analyze
+            # stage -> insert analyze (stronger Sonnet localizer with full tools) before
+            # generate, and lift the lean-context flag so it gets the knowledge base. Fires
+            # once (guarded by "analyze" not in stages). generate then builds on a real plan
+            # instead of re-localizing from scratch on its own.
+            if (stage == "recon" and "analyze" not in stages
+                    and not _recon_localized(res.structured_output)):
+                insert_at = stages.index("generate") if "generate" in stages else len(stages)
+                stages.insert(insert_at, "analyze")
+                plan.minimize_info = False
+                plan.stage_models["analyze"] = settings.model_for("analyze", plan.difficulty)
+                outcome.escalated = True
+                (run_dir / "escalation.json").write_text(json.dumps({
+                    "reason": "recon did not localize (no suspected file/function/harness entry)",
+                    "recon_stop_reason": res.stop_reason,
+                    "promoted_stage": "analyze",
+                    "analyze_model": plan.stage_models["analyze"],
+                }, indent=2, ensure_ascii=False))
+
             if res.stop_reason == "error":
                 outcome.error = res.error
             if cost.over_task_soft_cap(task_id) or cost.over_global_budget():
                 outcome.error = (outcome.error or "") + " [budget cap hit]"
                 break
+            i += 1
     finally:
         instrumenter.cleanup(container)
 

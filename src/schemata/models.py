@@ -141,3 +141,6 @@ class TaskOutcome(BaseModel):
     stages_run: list[str] = Field(default_factory=list)
     run_dir: str = ""
     error: Optional[str] = None
+    # True when cheap recon failed to localize and we promoted the analyze stage mid-run
+    # (bounded escalation). Lets the subset report measure how often the escalation fires.
+    escalated: bool = False
