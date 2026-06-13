@@ -69,5 +69,23 @@ def run_subset_cmd(
     typer.echo(f"\n=== {n_ok}/{len(rows)} crashed (exit!=0)  global ${cost.global_spent:.3f}  -> {summary}")
 
 
+@app.command("repl")
+def repl_cmd(
+    backend: str = typer.Option(None, "--backend"),
+    model: str = typer.Option("sonnet", "--model"),
+    config: str = typer.Option(None, "--config"),
+):
+    """Launch the interactive REPL (same as the `schema` console script)."""
+    from .runner.repl import main as repl_main
+    argv = []
+    if backend:
+        argv += ["--backend", backend]
+    if model:
+        argv += ["--model", model]
+    if config:
+        argv += ["--config", config]
+    raise typer.Exit(code=repl_main(argv))
+
+
 if __name__ == "__main__":
     app()

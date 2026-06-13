@@ -17,6 +17,7 @@ dependencies = [
     "tree-sitter>=0.23",
     "tree-sitter-c>=0.23",
     "tree-sitter-cpp>=0.23",
+    "rich>=13.7",
 ]
 
 [project.optional-dependencies]
@@ -24,6 +25,7 @@ dev = ["pytest>=8.0"]
 
 [project.scripts]
 schemata = "schemata.cli:app"
+schema = "schemata.runner.repl:main"
 
 [build-system]
 requires = ["setuptools>=68"]

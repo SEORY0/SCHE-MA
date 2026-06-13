@@ -27,31 +27,26 @@ they are NOT pre-built binaries on disk. If you type `schema` and get
 `command not found`, either the venv isn't activated or the editable install
 hasn't happened.
 
-### Quick path — on the dev box (with `pyenv 3.12.12` + local cybergym clone)
+### One-shot (any machine with Python 3.12+)
 
 ```bash
-bash scripts/setup_env.sh        # one-time: creates .venv, pip install -e ., symlinks
-source .venv/bin/activate        # activate so `schema` is on PATH
-schema --help                    # smoke test
+bash scripts/setup.sh            # picks Python 3.12+, makes .venv, pip install -e .
+source .venv/bin/activate        # so `schema` is on PATH
+schema --help
 ```
 
-### Fresh machine (no pyenv, no local cybergym)
+The script auto-detects `python3.12`, `python3.13`, or `python3` (whichever is
+≥ 3.12). Override with `SCHEMA_PYTHON=/path/to/python bash scripts/setup.sh`.
+It does NOT require pyenv, a local cybergym clone, or an API key — those are
+optional (see below).
+
+### Fully manual (if the script can't be used)
 
 ```bash
-# 1) ensure Python 3.12+ is available
-python3 --version                # must be >= 3.12
-
-# 2) create a venv (use python3.12 explicitly if `python3` is older)
-python3 -m venv .venv
+python3.12 -m venv .venv
 source .venv/bin/activate
-
-# 3) install SCHE-MA in editable mode — this registers the `schema` + `schemata`
-#    console scripts in .venv/bin/
 pip install --upgrade pip
 pip install -e .
-
-# 4) verify
-which schema                     # should print <repo>/.venv/bin/schema
 schema --help
 ```
 
@@ -78,7 +73,9 @@ schema --help
 | `schema: command not found` after fresh clone | run `pip install -e .` inside an activated venv |
 | `pip install -e .` errored on Python 3.11 or older | install Python 3.12 (`pyenv install 3.12.12` or distro package) and re-create the venv |
 | Installed in a venv that isn't activated | `source .venv/bin/activate` or use `./.venv/bin/schema` |
-| `cybergym` symlink missing (only matters for `/task arvo:*`) | rerun `bash scripts/setup_env.sh` (edit the path inside if your clone lives elsewhere) |
+| `cybergym` symlink missing (only matters for `/task arvo:*`) | `CYBERGYM_CLONE_DIR=/path/to/cybergym bash scripts/setup.sh` |
+| `claude` not found (claude_code backend) | install Claude Code (`https://github.com/anthropics/claude-code`), or `schema --backend claude_api` |
+| `ANTHROPIC_API_KEY not set` (claude_api backend) | `cp .env.example .env` and fill `ANTHROPIC_API_KEY=sk-...`, or `schema --backend claude_code` |
 
 ---
 
