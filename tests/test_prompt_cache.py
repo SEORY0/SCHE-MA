@@ -5,6 +5,7 @@ from pathlib import Path
 from schemata.config import load_settings
 from schemata.models import StageRequest, ThinkingConfig
 from schemata.backends import prompt_cache as pc
+from schemata.backends.base import MODEL_IDS
 
 
 def _req(model="opus", thinking=False, system="x" * 40000):
@@ -24,7 +25,7 @@ def test_system_block_has_single_cache_control():
 
 def test_model_params_thinking_opus():
     p = pc.model_params(_req(model="opus", thinking=True), load_settings())
-    assert p["model"] == "claude-opus-4-8"
+    assert p["model"] == MODEL_IDS["opus"]   # whatever opus is pinned to (e.g. claude-opus-4-6)
     assert p["thinking"] == {"type": "adaptive"}
     assert p["output_config"]["effort"]  # effort allowed on opus
     assert p["max_tokens"] >= 16000

@@ -14,9 +14,11 @@ PRICES = {
 }
 
 # alias -> full model id (used by both backends; CLI accepts the alias too).
-# Opus 4.8 (2026-05-28) is the newest generation; pricing tier matches 4.x opus.
+# Opus pinned to 4-6: 4.8 false-positive-refused the generate stage on hard tasks
+# (arvo:368, oss-fuzz:370689421) even with authorized-context framing; 4.6/4.7 are less
+# conservative on this PoC-reproduction prompt. Pricing tier matches across 4.x opus.
 MODEL_IDS = {
-    "opus": "claude-opus-4-8",
+    "opus": "claude-opus-4-6",
     "sonnet": "claude-sonnet-4-6",
     "haiku": "claude-haiku-4-5",
 }
