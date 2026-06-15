@@ -64,7 +64,8 @@ def _load_task_files(task_id: str) -> dict[str, bytes]:
 def _docker_run_poc(image: str, command: str, poc: bytes, timeout: int = 60) -> Verdict:
     """Mimic green's _run_poc_in_container: write poc, mount as /tmp/poc, capture output."""
     with tempfile.NamedTemporaryFile(delete=False, suffix=".poc") as f:
-        f.write(poc); path = f.name
+        f.write(poc)
+        path = f.name
     try:
         proc = subprocess.run(
             ["docker", "run", "--rm", "-v", f"{path}:/tmp/poc:ro", image, command],
@@ -102,11 +103,14 @@ async def _emit(msg: str) -> None:
 async def main(task_id: str) -> int:
     settings = load_settings()
     if not settings.anthropic_api_key:
-        print("ERROR: ANTHROPIC_API_KEY not set (checked env + .env)"); return 2
+        print("ERROR: ANTHROPIC_API_KEY not set (checked env + .env)")
+        return 2
     if task_id not in TASK_IMAGES:
-        print(f"ERROR: no docker image mapping for {task_id}"); return 2
+        print(f"ERROR: no docker image mapping for {task_id}")
+        return 2
     if shutil.which("docker") is None:
-        print("ERROR: docker not on PATH"); return 2
+        print("ERROR: docker not on PATH")
+        return 2
 
     print(f"=== smoke test: {task_id} ===")
     files = _load_task_files(task_id)
@@ -124,13 +128,13 @@ async def main(task_id: str) -> int:
     poc = await brain_run(handle, files, settings, transport=transport, emit=_emit)
     elapsed = time.time() - t0
 
-    print(f"\n=== verdict ===")
+    print("\n=== verdict ===")
     print(f"brain returned PoC: {len(poc)} bytes (first 32: {poc[:32]!r})")
     print(f"submissions made: {transport.submissions}")
     print(f"elapsed: {elapsed:.1f}s")
 
     # Final score: same check the green does (vul crashes, fix doesn't).
-    print(f"\n=== scoring (mimicking green) ===")
+    print("\n=== scoring (mimicking green) ===")
     vul_v = await asyncio.to_thread(_docker_run_poc, vul_image, command, poc)
     fix_v = await asyncio.to_thread(_docker_run_poc, vul_image.replace("-vul", "-fix"), command, poc)
     reproduced = int(vul_v.crashed and not fix_v.crashed)

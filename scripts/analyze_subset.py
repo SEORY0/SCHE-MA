@@ -202,8 +202,10 @@ def model_rollup(run: dict) -> list[dict]:
     for e in run["cost"].get("entries", []):
         a = alias_of(e.get("model"))
         d = agg.setdefault(a, {"input": 0, "output": 0, "cr": 0, "cw": 0, "cost": 0.0})
-        d["input"] += int(e.get("input_tokens", 0)); d["output"] += int(e.get("output_tokens", 0))
-        d["cr"] += int(e.get("cache_read_tokens", 0)); d["cw"] += int(e.get("cache_write_tokens", 0))
+        d["input"] += int(e.get("input_tokens", 0))
+        d["output"] += int(e.get("output_tokens", 0))
+        d["cr"] += int(e.get("cache_read_tokens", 0))
+        d["cw"] += int(e.get("cache_write_tokens", 0))
         d["cost"] += float(e.get("cost_usd", 0.0))
     return [{"model": k, **v, "cost": round(v["cost"], 4)} for k, v in
             sorted(agg.items(), key=lambda kv: -kv[1]["cost"])]

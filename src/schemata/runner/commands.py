@@ -6,8 +6,6 @@ print, or None for silence. Raise `ExitREPL` to terminate the loop.
 from __future__ import annotations
 
 import asyncio
-import json
-from pathlib import Path
 
 from .. import orchestrator
 from ..backends.base import MODEL_IDS

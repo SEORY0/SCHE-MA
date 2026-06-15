@@ -65,7 +65,8 @@ def parse_patch_diff(text: str) -> dict[str, Any]:
     for i, fm in enumerate(file_matches):
         b_path = fm.group("path")
         if b_path not in seen_files:
-            files.append(b_path); seen_files.add(b_path)
+            files.append(b_path)
+            seen_files.add(b_path)
         block_end = file_matches[i + 1].start() if i + 1 < len(file_matches) else len(text)
         block = text[fm.end():block_end]
         for hm in _HUNK_RE.finditer(block):
@@ -85,7 +86,8 @@ def parse_patch_diff(text: str) -> dict[str, Any]:
             code_ranges.append(f"{b_path}:{new_start}-{new_start + max(new_count - 1, 0)}")
             fn = _FUNC_NAME_RE.search(ctx)
             if fn and fn.group(1) not in seen_funcs:
-                functions.append(fn.group(1)); seen_funcs.add(fn.group(1))
+                functions.append(fn.group(1))
+                seen_funcs.add(fn.group(1))
     return {"files": files, "functions": functions, "code_ranges": code_ranges, "hunks": hunks}
 
 
@@ -240,12 +242,14 @@ def extract_level3_recon(task_dir: Path) -> dict[str, Any] | None:
         fn = f["fn"]
         if fn.startswith("__asan") or fn.startswith("__sanitizer") or fn in seen:
             continue
-        attack_surface.append(fn); seen.add(fn)
+        attack_surface.append(fn)
+        seen.add(fn)
         if len(attack_surface) >= 6:
             break
     for fn in patch["functions"]:
         if fn not in seen:
-            attack_surface.append(fn); seen.add(fn)
+            attack_surface.append(fn)
+            seen.add(fn)
 
     # Suspect files: drop docs/build noise (ChangeLog, *.html, version bumps), then
     # add bug-relevant source files from the top error frames. OSS-Fuzz frame paths

@@ -12,9 +12,7 @@ import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 
-import pytest
 
-from schemata.a2a import agent as brain_mod
 from schemata.a2a.agent import (SKELETON_POC, _a2a_plan, _read_poc, run,
                                 run_skeleton)
 from schemata.models import Artifacts, StageResult, SubmissionRecord
@@ -68,8 +66,10 @@ def test_read_poc_relative_to_task_dir(tmp_path: Path):
 
 
 def test_read_poc_falls_back_to_last_submission(tmp_path: Path):
-    s1 = tmp_path / "s1.bin"; s1.write_bytes(b"S1")
-    s2 = tmp_path / "s2.bin"; s2.write_bytes(b"S2")
+    s1 = tmp_path / "s1.bin"
+    s1.write_bytes(b"S1")
+    s2 = tmp_path / "s2.bin"
+    s2.write_bytes(b"S2")
     res = StageResult(stage="generate", artifacts=Artifacts(
         poc_path=None,
         submissions=[
@@ -131,7 +131,8 @@ def _settings():
 
 
 def test_run_returns_poc_bytes_from_generate(tmp_path: Path, monkeypatch):
-    poc = tmp_path / "final.bin"; poc.write_bytes(b"PWN")
+    poc = tmp_path / "final.bin"
+    poc.write_bytes(b"PWN")
     results = {
         "recon": StageResult(stage="recon", structured_output={"summary": "heap-bof"}),
         "analyze": StageResult(stage="analyze", structured_output={"plan": "len=1 LOOP"}),
@@ -212,7 +213,8 @@ class _SeqBackend:
 def test_run_retries_with_opus_when_no_poc_and_transport_set(tmp_path: Path, monkeypatch):
     """First generate produces no PoC; the safety net re-runs generate with opus, and the
     retry attempt yields a winning PoC that becomes the returned bytes."""
-    retry_poc = tmp_path / "retry.bin"; retry_poc.write_bytes(b"WIN")
+    retry_poc = tmp_path / "retry.bin"
+    retry_poc.write_bytes(b"WIN")
     backend = _SeqBackend({
         "recon":   [StageResult(stage="recon", structured_output={"summary": "heap"})],
         "analyze": [StageResult(stage="analyze", structured_output={"plan": "p"})],

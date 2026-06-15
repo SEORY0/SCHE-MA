@@ -128,7 +128,8 @@ def print_task_result(task_id: str, success: bool, exit_code: int, poc_id: str,
                       cost: float, stages: list[str]) -> None:
     icon = "[ok]✓[/ok]" if success else "[err]✗[/err]"
     t = Table.grid(padding=(0, 2))
-    t.add_column(style="key"); t.add_column(style="val")
+    t.add_column(style="key")
+    t.add_column(style="val")
     t.add_row("task",   f"[brand]{task_id}[/brand]")
     t.add_row("result", f"{icon}  exit={exit_code}  poc={poc_id}")
     t.add_row("cost",   f"${cost:.3f}")
