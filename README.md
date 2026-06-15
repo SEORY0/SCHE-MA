@@ -1,4 +1,5 @@
 # SCHE-MA — Security CHallenge Exploitation Multi-Agent
+<img width="1084" height="379" alt="image" src="https://github.com/user-attachments/assets/45b5e0e1-5f6a-491f-932d-5daef3db6122" />
 
 > Mythos+ Task Force
 
