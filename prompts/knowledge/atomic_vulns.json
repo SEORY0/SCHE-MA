@@ -129,7 +129,7 @@
     },
     "bad-free": {
       "label": "Bad-free", "sanitizer": "asan",
-      "aliases": ["bad-free", "attempting free on address which was not malloc"],
+      "aliases": ["bad-free", "invalid-free", "attempting free on address which was not malloc"],
       "sink": "free() of a pointer that wasn't heap-allocated (stack/global/interior pointer).",
       "recipe": "Drive the branch that frees a non-heap or interior pointer (e.g., a flag selecting a stack-buffer path into a shared cleanup that frees).",
       "fp_guard": "Reach the branch with valid structure; only the branch selector differs."

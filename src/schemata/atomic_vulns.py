@@ -26,10 +26,14 @@ def load() -> dict[str, dict]:
 
 
 def _norm(s: str) -> str:
-    """lowercase, unify separators to '-', drop a trailing ' N' (ASan appends an id), collapse."""
+    """lowercase, unify separators to '-', drop the trailing access-size token, collapse.
+
+    ASan appends an access size after READ/WRITE: a number ("...READ 1") or, when it varies,
+    the literal "{*}" ("...READ {*}"). Both must be stripped so the family matches a type id.
+    """
     s = (s or "").strip().lower()
     s = re.sub(r"[\s_]+", "-", s)
-    s = re.sub(r"-\d+$", "", s)        # "...-read-1" -> "...-read"
+    s = re.sub(r"-(?:\d+|\{\*\})$", "", s)   # "...-read-1" / "...-read-{*}" -> "...-read"
     s = re.sub(r"-{2,}", "-", s).strip("-")
     return s
 
