@@ -123,7 +123,11 @@ def test_discriminate_stops_at_retarget_budget(tmp_path, monkeypatch):
 def test_no_crash_skips_discriminate(tmp_path, monkeypatch):
     backend = _DiscBackend(verdicts=[], crash=False)
     poc = _run(tmp_path, backend, monkeypatch)
-    assert backend.stages == ["recon", "analyze", "generate"]   # nothing to judge
+    # No crash from any generate -> no discriminate stage fires. The no-PoC safety net
+    # promotes a second generate (opus); it ALSO finds no crash here, so we still fall
+    # back to the skeleton — but discriminate is correctly skipped (nothing to judge).
+    assert "discriminate" not in backend.stages
+    assert backend.stages == ["recon", "analyze", "generate", "generate"]
     assert poc == brain_mod.SKELETON_POC
 
 

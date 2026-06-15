@@ -194,3 +194,61 @@ def test_run_falls_back_to_skeleton_when_no_poc(tmp_path: Path, monkeypatch):
     handle = SimpleNamespace(task_dir=str(tmp_path), label="t", masked_id="m")
     out = asyncio.run(run(handle, {}, _settings(), transport=None, emit=None))
     assert out == SKELETON_POC
+
+
+class _SeqBackend:
+    """Returns canned results per stage in order — each stage call advances the queue
+    for that stage. Used to model 'second generate call returns a PoC' after the
+    no-PoC retry promotes to opus."""
+    def __init__(self, by_stage_seq):
+        self.by_stage_seq = {k: list(v) for k, v in by_stage_seq.items()}
+        self.calls = []
+
+    async def run_stage(self, req):
+        self.calls.append(req)
+        return self.by_stage_seq[req.stage].pop(0)
+
+
+def test_run_retries_with_opus_when_no_poc_and_transport_set(tmp_path: Path, monkeypatch):
+    """First generate produces no PoC; the safety net re-runs generate with opus, and the
+    retry attempt yields a winning PoC that becomes the returned bytes."""
+    retry_poc = tmp_path / "retry.bin"; retry_poc.write_bytes(b"WIN")
+    backend = _SeqBackend({
+        "recon":   [StageResult(stage="recon", structured_output={"summary": "heap"})],
+        "analyze": [StageResult(stage="analyze", structured_output={"plan": "p"})],
+        "generate": [
+            StageResult(stage="generate", artifacts=Artifacts()),                  # 1st: no PoC
+            StageResult(stage="generate", artifacts=Artifacts(poc_path=str(retry_poc))),  # 2nd: PoC
+        ],
+    })
+    _patch_brain(monkeypatch, backend)
+
+    transport = SimpleNamespace(submit=lambda *a, **k: None)
+    handle = SimpleNamespace(task_dir=str(tmp_path), label="t", masked_id="m")
+
+    out = asyncio.run(run(handle, {}, _settings(), transport=transport, emit=None))
+    assert out == b"WIN"
+
+    stages = [c.stage for c in backend.calls]
+    # original 3 stages + retry generate (analyze already in plan, so retry skips it)
+    assert stages == ["recon", "analyze", "generate", "generate"]
+    # retry generate must use opus
+    assert backend.calls[-1].model == "opus"
+
+
+def test_run_skips_retry_when_no_transport(tmp_path: Path, monkeypatch):
+    """No transport -> retry must NOT fire (would break local/offline modes that intentionally
+    skip the green submit round-trip)."""
+    backend = _SeqBackend({
+        "recon":    [StageResult(stage="recon")],
+        "analyze":  [StageResult(stage="analyze")],
+        "generate": [StageResult(stage="generate", artifacts=Artifacts())],  # no PoC
+    })
+    _patch_brain(monkeypatch, backend)
+    handle = SimpleNamespace(task_dir=str(tmp_path), label="t", masked_id="m")
+
+    out = asyncio.run(run(handle, {}, _settings(), transport=None, emit=None))
+    assert out == SKELETON_POC
+
+    stages = [c.stage for c in backend.calls]
+    assert stages == ["recon", "analyze", "generate"]  # no retry generate

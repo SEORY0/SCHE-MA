@@ -167,6 +167,38 @@ async def run(handle, files, settings, transport=None, emit=None) -> bytes:
             _log(f"{label} discriminate ERROR (kept best crash so far): {e!r}")
         poc = disc.best_poc_bytes(handle, all_submissions) or poc
 
+    # ---- P0+P4 no-PoC retry safety net ------------------------------------------
+    # If generate produced no PoC at all (no submit_poc call, or every call returned
+    # without a crash), one Sonnet retry on the same prompt rarely helps — capability
+    # ceiling. Promote to Opus + force analyze if level3 fast-path skipped it. Mirrors
+    # orchestrator._retry_if_no_poc; one shot only.
+    if poc is None and transport is not None and gen_res is not None:
+        try:
+            _log(f"{label} no-PoC retry: forcing analyze+opus (had {n_sub if (n_sub := len(all_submissions)) else 0} submits)")
+            if emit:
+                await emit("no PoC produced → retry with analyze + opus")
+            plan.minimize_info = False
+            plan.stage_models["generate"] = "opus"
+            retry_stages = []
+            if "analyze" not in plan.stages:
+                plan.stage_models["analyze"] = settings.model_for("analyze", plan.difficulty)
+                retry_stages.append("analyze")
+            retry_stages.append("generate")
+            for stage in retry_stages:
+                req = prompt_loader.build_request(stage, plan, meta, handle, prior, settings, "claude_api")
+                if stage == "generate":
+                    req.submit_fn = transport.submit
+                res = await backend.run_stage(req)
+                prior[stage] = res.structured_output
+                if stage == "generate":
+                    gen_res = res
+                    all_submissions.extend(res.artifacts.submissions)
+                    poc = _read_poc(handle, res) or poc
+                if res.error or res.stop_reason == "error":
+                    _log(f"{label} retry stage {stage} ERROR: stop={res.stop_reason} err={res.error!r}")
+        except Exception as e:
+            _log(f"{label} no-PoC retry ERROR (kept original outcome): {e!r}")
+
     # One-line task-end breadcrumb. This is the line we need for post-mortem: did
     # generate succeed? how many submit_poc round-trips? did we return a real PoC?
     n_sub = len(all_submissions)

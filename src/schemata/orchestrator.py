@@ -135,9 +135,95 @@ async def run_task(
         outcome.poc_id = final.poc_id
         outcome.success = final.crashed
 
+    # P0+P4 no-submit-attempt retry. The two PR#212 failures (arvo:24993, oss-fuzz:42535468)
+    # both spent meaningful generate tokens but produced ZERO PoC — backgrounded build / stuck
+    # iteration loops. We detect that via no-poc proxy (no PoC file on disk, no winning path
+    # in stage JSON, not yet a confirmed success) and re-run generate ONCE with analyze
+    # forced + Opus, bounded by per_task_soft_usd. Re-submitting Sonnet on the same prompt
+    # rarely changes outcome; the capability ceiling is the issue.
+    retried = await _retry_if_no_poc(
+        task_id, backend, backend_name, plan, meta, handle, prior, settings, cost,
+        run_dir, submissions, outcome,
+    )
+    if retried is not None:
+        # Re-confirm with the retried PoC.
+        final = _confirm_winner(handle, prior, settings, run_dir, submissions, retried)
+        if final is not None:
+            outcome.final_exit_code = final.exit_code
+            outcome.poc_id = final.poc_id
+            outcome.success = final.crashed
+
     outcome.cost_usd = cost.task_cost(task_id)
     _write_record(run_dir, outcome, plan, prior, submissions)
     return outcome
+
+
+async def _retry_if_no_poc(
+    task_id, backend, backend_name: str, plan, meta, handle, prior, settings, cost,
+    run_dir: Path, submissions: list, outcome: TaskOutcome,
+) -> str | None:
+    """If generate produced no PoC at all, re-run analyze→generate(Opus) once.
+
+    Trigger (no-poc proxy, not raw submissions==0 which is always true since
+    claude_code.py never populates artifacts.submissions):
+        - outcome.success is False
+        - no winning_poc_path resolvable (stage JSON, prior submissions, disk)
+        - generate ran at least once (don't retry if generate was never attempted)
+        - have headroom under per_task_soft_usd
+    """
+    if outcome.success:
+        return None
+    if "generate" not in outcome.stages_run:
+        return None
+    if _resolve_winning_poc(handle, prior, submissions, None) is not None:
+        return None
+    if cost.over_task_soft_cap(task_id) or cost.over_global_budget():
+        outcome.error = (outcome.error or "") + " [no_submit_attempt, no budget for retry]"
+        return None
+
+    outcome.error = (outcome.error or "") + " [no_submit_attempt; retrying analyze+opus]"
+    outcome.escalated = True
+    (run_dir / "no_submit_retry.json").write_text(json.dumps({
+        "reason": "generate emitted no PoC (no winning_poc_path, no foreground submit)",
+        "promoted_stages": ["analyze", "generate"],
+        "generate_model": "opus",
+        "stages_run_before_retry": list(outcome.stages_run),
+    }, indent=2, ensure_ascii=False))
+
+    # Force analyze (if it wasn't there) with full tools + knowledge base.
+    plan.minimize_info = False
+    if "analyze" not in plan.stage_models:
+        plan.stage_models["analyze"] = settings.model_for("analyze", plan.difficulty)
+    plan.stage_models["generate"] = "opus"
+
+    new_winning_poc: str | None = None
+    for stage in ("analyze", "generate"):
+        # Skip analyze if its output is already in `prior` (already ran in the first pass).
+        if stage == "analyze" and prior.get("analyze"):
+            continue
+        req = build_request(
+            stage, plan, meta, handle, prior, settings, backend_name,
+            instrument_container=None,
+        )
+        res = await backend.run_stage(req)
+        cost.add(task_id, stage, res.usage, res.cost_usd)
+        outcome.stages_run.append(f"{stage}*")  # marker so the row shows the retry
+        prior[stage] = res.structured_output
+        submissions.extend(res.artifacts.submissions)
+        if res.artifacts.poc_path:
+            new_winning_poc = res.artifacts.poc_path
+        (run_dir / f"stage_{stage}_retry.json").write_text(json.dumps({
+            "structured_output": res.structured_output,
+            "stop_reason": res.stop_reason,
+            "error": res.error,
+            "cost_usd": res.cost_usd,
+            "usage": res.usage.model_dump(),
+            "transcript_tail": res.raw_transcript_tail,
+        }, indent=2, ensure_ascii=False))
+        if cost.over_task_soft_cap(task_id) or cost.over_global_budget():
+            outcome.error = (outcome.error or "") + " [retry budget cap hit]"
+            break
+    return new_winning_poc
 
 
 def _resolve_winning_poc(handle, prior, submissions, winning_poc):
