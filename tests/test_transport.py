@@ -46,3 +46,29 @@ def test_timeout_returns_none(tmp_path):
     emitted = []
     v = _submit_with_reply(tmp_path, None, emitted=emitted)  # no reply queued -> timeout
     assert v is None
+
+
+def test_counters_track_calls_crashes_and_timeouts(tmp_path):
+    # Health counters back the brain's METRICS line: a timeout returns None and is NOT
+    # recorded as a submission, so without n_timeouts a dropped green reply is invisible.
+    poc = tmp_path / "poc"
+    poc.write_bytes(b"\x00")
+    q: asyncio.Queue = asyncio.Queue()
+
+    async def emit_test(_b):
+        pass
+
+    t = A2AGreenSubmit(emit_test, q, timeout=1)
+
+    async def go():
+        await q.put({"exit_code": 1, "output": "boom"})
+        v1 = await t.submit(poc)   # green replies with a crash
+        v2 = await t.submit(poc)   # no reply queued -> timeout
+        return v1, v2
+
+    v1, v2 = _run(go())
+    assert v1 is not None and v1.crashed is True
+    assert v2 is None
+    assert t.n_calls == 2
+    assert t.n_crashes == 1
+    assert t.n_timeouts == 1

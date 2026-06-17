@@ -9,6 +9,7 @@ are all driven end-to-end on the actual module.
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -158,7 +159,8 @@ def test_run_returns_poc_bytes_from_generate(tmp_path: Path, monkeypatch):
     # generate stage saw recon's structured_output threaded in
     # (the patched build_request ignores `prior`, but run() must still pass it; the
     # real check is that emit was called for each stage)
-    assert len(emits) == 4  # 3 stage starts + 1 generate-summary
+    assert len(emits) == 5  # 3 stage starts + 1 generate-summary + 1 metrics line
+    assert emits[-1].startswith("metrics:")  # per-task METRICS summary always emitted last
 
 
 def test_run_wires_submit_fn_when_transport_set(tmp_path: Path, monkeypatch):
@@ -254,3 +256,33 @@ def test_run_skips_retry_when_no_transport(tmp_path: Path, monkeypatch):
 
     stages = [c.stage for c in backend.calls]
     assert stages == ["recon", "analyze", "generate"]  # no retry generate
+
+
+def test_metrics_line_reports_atomic_and_poc_no_crash(tmp_path: Path, monkeypatch, capsys):
+    """The per-task METRICS breadcrumb must surface the measure-first signals so a flat
+    arena run can be attributed: atomic_examples (did vuln_classes reach generate),
+    gen_model (was a hard task stuck on sonnet), and poc_no_crash (bytes produced but no
+    crash — the state where the `poc is None` retry gate wrongly suppresses Opus)."""
+    poc = tmp_path / "cand.bin"; poc.write_bytes(b"NOCRASH")
+    results = {
+        "recon": StageResult(stage="recon",
+                             structured_output={"vuln_classes": ["heap-buffer-overflow-read"]}),
+        "analyze": StageResult(stage="analyze", structured_output={}),
+        "generate": StageResult(stage="generate", stop_reason="early_stop",
+                                artifacts=Artifacts(
+                                    poc_path=str(poc),
+                                    submissions=[SubmissionRecord(poc_path=str(poc), exit_code=0)])),
+    }
+    _patch_brain(monkeypatch, _FakeBackend(results))
+    handle = SimpleNamespace(task_dir=str(tmp_path), label="t-metrics", masked_id="m")
+
+    out = asyncio.run(run(handle, {}, _settings(), transport=None, emit=None))
+    assert out == b"NOCRASH"  # a non-crashing PoC's bytes are still returned (and would block retry)
+
+    line = next(ln for ln in capsys.readouterr().err.splitlines() if "METRICS" in ln)
+    m = json.loads(line.split("METRICS", 1)[1])
+    assert m["atomic_examples"] == "YES"          # vuln_classes flowed -> recipes injected
+    assert m["gen_model"] == "generate-model"     # from _settings().model_for; proves model routing
+    assert m["crashes"] == 0
+    assert m["poc_no_crash"] is True              # bytes but no crash -> the ② Opus-suppression signal
+    assert m["skeleton"] is False

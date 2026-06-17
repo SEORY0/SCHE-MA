@@ -17,6 +17,7 @@ arena (recon is ~25-40% of per-task spend even on Haiku).
 """
 from __future__ import annotations
 
+import json
 import logging
 import sys
 import time
@@ -116,6 +117,7 @@ async def run(handle, files, settings, transport=None, emit=None) -> bytes:
     plan = _a2a_plan(settings, skip_recon=level3_recon is not None)
     poc: bytes | None = None
     gen_res = None
+    retried = False  # set when the no-PoC opus retry fires (for the METRICS line)
 
     for stage in plan.stages:
         req = prompt_loader.build_request(stage, plan, meta, handle, prior, settings, "claude_api")
@@ -173,6 +175,7 @@ async def run(handle, files, settings, transport=None, emit=None) -> bytes:
     # ceiling. Promote to Opus + force analyze if level3 fast-path skipped it. Mirrors
     # orchestrator._retry_if_no_poc; one shot only.
     if poc is None and transport is not None and gen_res is not None:
+        retried = True
         try:
             _log(f"{label} no-PoC retry: forcing analyze+opus (had {n_sub if (n_sub := len(all_submissions)) else 0} submits)")
             if emit:
@@ -205,4 +208,42 @@ async def run(handle, files, settings, transport=None, emit=None) -> bytes:
     stop = gen_res.stop_reason if gen_res else "no-generate"
     _log(f"{label} done: stop={stop} subs={n_sub} poc={len(poc) if poc else 0}B"
          f"{' SKELETON_FALLBACK' if poc is None else ''}")
+
+    # ---- Per-task METRICS line (measure-first; no behavior change) ----------------
+    # One machine-parseable line per arena task so a leaderboard run can be post-mortemed
+    # WITHOUT a runs/ dir (the executor wipes its scratch tempdir). It separates the
+    # competing failure hypotheses the local 8/10 vs flat-arena gap raised:
+    #   • atomic_examples=EMPTY  -> recon/analyze never produced vuln_classes, so the
+    #     atomic-vuln Example(V_i) recipes never reached generate (the "no effect" cause).
+    #   • gen_model=sonnet on a hard task -> the arena hardcodes difficulty=medium, so the
+    #     local Opus-only hard wins (arvo:368, oss-fuzz:370689421) are lost here.
+    #   • poc_no_crash=true & retried=false -> generate emitted PoC bytes that never crashed,
+    #     so the `poc is None` retry gate self-suppressed the Opus escalation that was needed.
+    #   • green_timeouts>0 -> the green dropped test_vulnerable replies (shots wasted, not blind).
+    crashes = sum(1 for s in all_submissions if s.crashed)
+    vc = ((prior.get("analyze") or {}).get("vuln_classes")
+          or (prior.get("recon") or {}).get("vuln_classes") or [])
+    from .. import atomic_vulns
+    metrics = {
+        "level": lvl,
+        "gen_model": plan.stage_models.get("generate"),
+        "difficulty": plan.difficulty,
+        "vuln_classes": vc,
+        "atomic_examples": "YES" if atomic_vulns.retrieve(vc) else "EMPTY",
+        "subs": n_sub,
+        "crashes": crashes,
+        "poc_no_crash": bool(poc is not None and crashes == 0),
+        "retried": retried,
+        "green_calls": getattr(transport, "n_calls", None),
+        "green_timeouts": getattr(transport, "n_timeouts", None),
+        "discriminate": (prior.get("discriminate") or {}).get("verdict"),
+        "stop": stop,
+        "poc_bytes": len(poc) if poc else 0,
+        "skeleton": poc is None,
+    }
+    _log(f"{label} METRICS {json.dumps(metrics, ensure_ascii=False)}")
+    if emit:
+        await emit(f"metrics: atomic={metrics['atomic_examples']} gen_model={metrics['gen_model']} "
+                   f"subs={n_sub} crashes={crashes} poc_no_crash={metrics['poc_no_crash']} "
+                   f"green_timeouts={metrics['green_timeouts']} stop={stop}")
     return poc or SKELETON_POC
