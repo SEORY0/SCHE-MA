@@ -5,7 +5,8 @@ def test_library_has_28_types():
     lib = av.load()
     assert len(lib) == 28
     for tid, e in lib.items():
-        assert {"label", "sanitizer", "sink", "recipe", "fp_guard"} <= set(e)
+        assert {"label", "sanitizer", "sink", "recipe", "byte_example", "fp_guard"} <= set(e)
+        assert e["byte_example"].strip()  # non-empty illustrative schematic for every type
 
 
 def test_classify_exact_variant():
@@ -43,6 +44,7 @@ def test_retrieve_renders_only_requested_and_dedupes():
     assert "Heap-buffer-overflow READ" in out
     assert out.count("### ") == 1                            # deduped, bogus dropped
     assert "Example(V_i):" in out and "score 0" in out
+    assert "byte_example" in out and "read_index=N" in out   # illustrative bytes rendered
     assert av.retrieve([]) == "" and av.retrieve(None) == ""
 
 

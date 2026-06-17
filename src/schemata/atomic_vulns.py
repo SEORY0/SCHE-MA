@@ -90,10 +90,16 @@ def retrieve(classes) -> str:
               "(minimum-margin, single-invariant); avoid each FP guard."]
     for cid in seen:
         e = lib[cid]
+        be = e.get("byte_example")
+        byte_line = (
+            f"- byte_example (ILLUSTRATIVE shape — instantiate against THIS target's real "
+            f"format, do NOT copy literally): {be}\n" if be else ""
+        )
         blocks.append(
             f"\n### {e['label']} ({e['sanitizer']})\n"
             f"- sink: {e['sink']}\n"
             f"- Example(V_i): {e['recipe']}\n"
+            f"{byte_line}"
             f"- avoid (would crash the fix too → score 0): {e['fp_guard']}"
         )
     blocks.append("</atomic_vuln_examples>")

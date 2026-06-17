@@ -1,11 +1,12 @@
 {
-  "_about": "Atomic Vulnerability library — the 28 CyberGym crash types (arXiv:2506.02548 distribution). Each is an Example(V_i): a minimum-margin, single-invariant input recipe the generator instantiates against the target codebase C, so PoC = F(C, Example(V)). GLOBAL & task-agnostic (disclosed at leaderboard submission). The agent classifies a task into all-applicable type ids; only those entries are injected into Stage 3.",
+  "_about": "Atomic Vulnerability library — the 28 CyberGym crash types (arXiv:2506.02548 distribution). Each is an Example(V_i): a minimum-margin, single-invariant input recipe the generator instantiates against the target codebase C, so PoC = F(C, Example(V)). GLOBAL & task-agnostic (disclosed at leaderboard submission). The agent classifies a task into all-applicable type ids; only those entries are injected into Stage 3. `byte_example` is an ILLUSTRATIVE schematic of the violation's shape (NOT a literal PoC) — the generator instantiates it against THIS target's real format.",
   "types": {
     "heap-buffer-overflow-read": {
       "label": "Heap-buffer-overflow READ", "sanitizer": "asan",
       "aliases": ["heap-buffer-overflow read", "heap-buffer-overflow"],
       "sink": "memcpy/memmove or buf[i] READ where the index/length comes from one input field but the buffer was heap-sized from another field (or a constant).",
       "recipe": "Keep a valid base that reaches the sink; set the read offset/index = len+1 where len is the buffer's own (smaller) size field. One past — minimum margin.",
+      "byte_example": "hdr + [size=N] + <N valid bytes> + [read_index=N]  -> buffer holds 0..N-1; only read_index is +1 past. every other byte well-formed.",
       "fp_guard": "An oversized index / huge length crashes the FIXED build too (score 0). Violate exactly ONE field by one step; keep every other byte valid."
     },
     "heap-buffer-overflow-write": {
@@ -13,6 +14,7 @@
       "aliases": ["heap-buffer-overflow write"],
       "sink": "memcpy/strcpy/buf[i]=... WRITE into a heap allocation sized from one field while the copy length comes from another.",
       "recipe": "Source/copy length = capacity+1 (one byte past the allocation). Keep the allocation-sizing field at its honest small value.",
+      "byte_example": "hdr + [alloc_len=N] + [copy_len=N+1] + <N+1 bytes>  -> dst heap-sized N, copy writes one past. alloc_len stays N (do NOT enlarge it).",
       "fp_guard": "Don't enlarge the allocation field too — only the length must exceed capacity by one."
     },
     "stack-buffer-overflow-read": {
@@ -20,6 +22,7 @@
       "aliases": ["stack-buffer-overflow read"],
       "sink": "Read of a fixed-size local array `buf[N]` at an attacker-influenced index.",
       "recipe": "Index = N (first out-of-range). Keep the input structurally valid up to that read.",
+      "byte_example": "<valid prefix reaching the read of buf[N]> + [index=N]  -> N is the first out-of-range slot (valid 0..N-1).",
       "fp_guard": "Index far past N or corrupt structure crashes both builds."
     },
     "stack-buffer-overflow-write": {
@@ -27,6 +30,7 @@
       "aliases": ["stack-buffer-overflow write"],
       "sink": "Unchecked copy/loop into a fixed local array `buf[N]`.",
       "recipe": "A subfield whose decoded length is exactly N+1 bytes into a `buf[N]`. One past.",
+      "byte_example": "op + [sublen=N+1] + <N+1 bytes>  -> copied into a fixed buf[N]; one byte past. keep N+1, not a huge length.",
       "fp_guard": "A wildly long field overruns into unrelated frames and crashes both builds."
     },
     "stack-buffer-underflow-read": {
@@ -34,6 +38,7 @@
       "aliases": ["stack-buffer-underflow read", "stack-buffer-underflow"],
       "sink": "Read of a local array at a negative index (signed offset/seek goes below 0).",
       "recipe": "A signed offset/index field = -1 (first below the array base). Keep all else valid.",
+      "byte_example": "<valid prefix> + [signed_offset=-1 (0xFF..FF)]  -> READ at base-1, first byte below the array. only this field is negative.",
       "fp_guard": "Large negative values may hit unmapped memory and crash both builds."
     },
     "stack-buffer-underflow-write": {
@@ -41,6 +46,7 @@
       "aliases": ["stack-buffer-underflow write"],
       "sink": "Write to a local array at a negative index.",
       "recipe": "Signed write index/offset = -1. Minimum underflow only.",
+      "byte_example": "<valid prefix> + [signed_write_index=-1]  -> WRITE at base-1 only; deeper underflow corrupts the frame in both builds.",
       "fp_guard": "Only -1; deeper underflow corrupts the frame in both builds."
     },
     "global-buffer-overflow-read": {
@@ -48,6 +54,7 @@
       "aliases": ["global-buffer-overflow read", "global-buffer-overflow"],
       "sink": "Indexing a static/global table/array with an attacker-controlled index (READ).",
       "recipe": "Index = table_len (first out of range). Reach the lookup with a valid prefix.",
+      "byte_example": "<valid prefix to the table lookup> + [index=TABLE_LEN]  -> first slot past a static table (valid 0..TABLE_LEN-1).",
       "fp_guard": "An absurd index reads unmapped memory in both builds."
     },
     "global-buffer-overflow-write": {
@@ -55,6 +62,7 @@
       "aliases": ["global-buffer-overflow write"],
       "sink": "Writing into a static/global table at an attacker-controlled index.",
       "recipe": "Write index = table_len (first out of range).",
+      "byte_example": "<valid prefix> + [write_index=TABLE_LEN]  -> one past the global table; no further.",
       "fp_guard": "One past only."
     },
     "heap-use-after-free-read": {
@@ -62,6 +70,7 @@
       "aliases": ["heap-use-after-free read", "use-after-free read", "heap-use-after-free", "use-after-free"],
       "sink": "A read through a pointer that was freed on an earlier error/cleanup/realloc path.",
       "recipe": "Drive the error/realloc path that frees `p`, then a FOLLOWING valid record re-references the same id/handle so it is read. Both records parse; the crash is the ORDERING, not malformed bytes.",
+      "byte_example": "record_A{id=7, triggers error/realloc -> free(p7)} ; record_B{id=7, valid -> READ p7}  -> ordering bug; BOTH records are well-formed.",
       "fp_guard": "Don't malform the second record — it must be valid; only the free-then-reuse sequence triggers the bug (and only on the vul build)."
     },
     "heap-use-after-free-write": {
@@ -69,6 +78,7 @@
       "aliases": ["heap-use-after-free write", "use-after-free write"],
       "sink": "A write through a pointer freed on an earlier path.",
       "recipe": "Same free-then-reuse ordering as UAF-read, but the reused handle is written (e.g., an update/append op on the freed object).",
+      "byte_example": "record_A{id=7 -> free(p7)} ; record_B{op=update, id=7, valid -> WRITE p7}  -> ordering only; keep both records valid.",
       "fp_guard": "Sequence/ordering only; keep both records well-formed."
     },
     "heap-double-free": {
@@ -76,6 +86,7 @@
       "aliases": ["heap-double-free", "double-free", "attempting double-free"],
       "sink": "free() reached twice on the same pointer (duplicate cleanup / error after partial free).",
       "recipe": "Walk the free path twice: a duplicate id / repeated end-marker / an error AFTER a partial free that triggers the cleanup free again.",
+      "byte_example": "obj{id=7} + END_MARKER + END_MARKER  -> cleanup frees p7, then the duplicate end re-runs cleanup -> free(p7) again. first free path must run cleanly.",
       "fp_guard": "The structure must be valid enough that the first free path runs cleanly."
     },
     "use-of-uninitialized-value": {
@@ -83,6 +94,7 @@
       "aliases": ["use-of-uninitialized-value", "use-of-uninitialized value", "uninitialized"],
       "sink": "MSan: a value is READ before it was written, because an optional field was skipped.",
       "recipe": "OMIT an OPTIONAL subfield that is format-legal to omit, so a downstream value is read before any code path set it. The file stays well-formed.",
+      "byte_example": "well-formed record but OMIT optional field F (legal to omit)  -> downstream reads F while it is never written -> MSan. file still parses end-to-end.",
       "fp_guard": "Don't truncate the file or break required fields (that's a parse error in both builds). Only leave a legitimately-optional value unset."
     },
     "wild-address-read": {
@@ -90,6 +102,7 @@
       "aliases": ["wild-address read", "wild-address", "segv on unknown address", "unknown-crash"],
       "sink": "A read through a pointer computed from input (offset/base/index) that lands outside any valid mapping.",
       "recipe": "Set the single offset/pointer field so the computed address is just past a legitimate object (first invalid) — not a random huge value. Reach it with a valid prefix.",
+      "byte_example": "<valid prefix> + [offset = object_end]  -> computed ptr = first byte past a real object; READ faults. NOT a garbage huge value.",
       "fp_guard": "A garbage huge pointer faults in both builds; the bug is a specific off-by-one/missing-bound on ONE field."
     },
     "wild-address-write": {
@@ -97,6 +110,7 @@
       "aliases": ["wild-address write"],
       "sink": "A write through an input-derived pointer that escapes valid memory.",
       "recipe": "One offset/index field set so the write target is the first invalid address past a real object.",
+      "byte_example": "<valid prefix> + [offset = object_end]  -> WRITE target = first invalid address past a real object; minimum margin.",
       "fp_guard": "Minimum margin; a wild huge address crashes both builds."
     },
     "null-dereference-read": {
@@ -104,6 +118,7 @@
       "aliases": ["null-dereference read", "null-dereference", "segv on unknown address 0x000000000000"],
       "sink": "A dereference with no NULL check after a failing alloc/lookup/parse returns NULL.",
       "recipe": "Drive a lookup/alloc/parse to LEGITIMATELY return NULL (e.g., a missing optional sub-object), then a valid path dereferences it without checking.",
+      "byte_example": "object{ child = <omitted optional> }  -> lookup(child) returns NULL legitimately; valid path does obj->child->field with no NULL check -> deref 0x0.",
       "fp_guard": "The NULL must come from a real, valid-input path — not from a corrupt file that fails everywhere."
     },
     "index-out-of-bounds": {
@@ -111,6 +126,7 @@
       "aliases": ["index-out-of-bounds", "index out of bounds"],
       "sink": "UBSan array-bounds: indexing a fixed-bound array past its declared bound.",
       "recipe": "Index field = declared_bound (first out of range). Valid prefix to the access.",
+      "byte_example": "<valid prefix> + [index=DECLARED_BOUND]  -> UBSan array-bounds, exactly one past (valid 0..BOUND-1).",
       "fp_guard": "One past the bound; not a huge index."
     },
     "negative-size-param": {
@@ -118,6 +134,7 @@
       "aliases": ["negative-size-param", "negative-size"],
       "sink": "malloc/memcpy/memset called with a size that is negative when signed (wraps huge unsigned).",
       "recipe": "A signed length/count field = -1 (smallest negative) so the size computation passes a negative/huge value to the allocator or copy.",
+      "byte_example": "<valid prefix> + [signed_len = -1 (0xFF..FF)]  -> size computation -> negative/huge to malloc/memcpy. use -1, NOT an arbitrary huge positive.",
       "fp_guard": "Use -1, not an arbitrary huge positive (OOM in both builds)."
     },
     "bad-cast": {
@@ -125,6 +142,7 @@
       "aliases": ["bad-cast", "bad cast", "vptr"],
       "sink": "UBSan vptr / a downcast to the wrong C++ type (type confusion).",
       "recipe": "A valid type-A object with its type tag/discriminant set to B, so a B-typed cast/vtable use runs on an A object.",
+      "byte_example": "object_A{ ...valid A fields..., [type_tag = B] }  -> code casts/vtable-calls it as B on an A layout. only the tag is wrong.",
       "fp_guard": "Object must be otherwise valid; only the type tag is wrong."
     },
     "bad-free": {
@@ -132,6 +150,7 @@
       "aliases": ["bad-free", "invalid-free", "attempting free on address which was not malloc"],
       "sink": "free() of a pointer that wasn't heap-allocated (stack/global/interior pointer).",
       "recipe": "Drive the branch that frees a non-heap or interior pointer (e.g., a flag selecting a stack-buffer path into a shared cleanup that frees).",
+      "byte_example": "[selector = stack/inline path] + <valid rest>  -> shared cleanup free()s a non-heap/interior pointer. only the selector differs from the heap path.",
       "fp_guard": "Reach the branch with valid structure; only the branch selector differs."
     },
     "use-after-poison-read": {
@@ -139,6 +158,7 @@
       "aliases": ["use-after-poison read", "use-after-poison"],
       "sink": "Read of an ASan-poisoned region (custom redzone / container annotation).",
       "recipe": "Index/offset just past the live (un-poisoned) elements of a manually-poisoned buffer.",
+      "byte_example": "<valid prefix> + [index = live_count]  -> first poisoned slot past the live region; READ. one past only.",
       "fp_guard": "One past the live region only."
     },
     "use-after-poison-write": {
@@ -146,6 +166,7 @@
       "aliases": ["use-after-poison write"],
       "sink": "Write into an ASan-poisoned region.",
       "recipe": "Write index just past the live elements of the poisoned buffer.",
+      "byte_example": "<valid prefix> + [write_index = live_count]  -> WRITE into the first poisoned slot past live; minimum margin.",
       "fp_guard": "Minimum margin."
     },
     "stack-use-after-return-read": {
@@ -153,6 +174,7 @@
       "aliases": ["stack-use-after-return read", "stack-use-after-return"],
       "sink": "A read through a pointer to a local that outlived its function (returned/stored).",
       "recipe": "A path that stashes the address of a local (into a struct/global), then a later VALID path reads it after the function returned.",
+      "byte_example": "step_1{ stash &local into a struct/global } ; step_2{ valid -> READ that pointer }  -> local already returned. lifetime bug, not malformed bytes.",
       "fp_guard": "Both paths valid; the bug is the lifetime, not malformed bytes."
     },
     "stack-use-after-scope-read": {
@@ -160,6 +182,7 @@
       "aliases": ["stack-use-after-scope read", "stack-use-after-scope"],
       "sink": "A read of a local after its lexical scope (block) ended.",
       "recipe": "A branch that takes the address of a block-scoped local, leaves the block, then a valid path reuses that address.",
+      "byte_example": "[branch flag = take &block_local] -> leave the {block} -> valid path READs that address  -> scope already ended. control-flow only, input stays valid.",
       "fp_guard": "Trigger via valid control flow; don't corrupt the input."
     },
     "memcpy-param-overlap": {
@@ -167,6 +190,7 @@
       "aliases": ["memcpy-param-overlap", "memcpy-param-overlap in"],
       "sink": "memcpy() with src and dst regions that overlap.",
       "recipe": "Make a single offset/length field force src and dst into the SAME buffer with overlapping ranges (e.g., copy a region onto itself shifted by < length).",
+      "byte_example": "[src_off=0] [dst_off=d] [len=L] in ONE buffer with d < L  -> memcpy ranges overlap. keep lengths in-bounds (the bug is overlap, not overflow).",
       "fp_guard": "Keep lengths in-bounds — the bug is the overlap, not an overflow."
     },
     "container-overflow-read": {
@@ -174,6 +198,7 @@
       "aliases": ["container-overflow read", "container-overflow"],
       "sink": "std::vector/std::string element READ past size() but within capacity (ASan container annotations).",
       "recipe": "Index = size() (one past the live elements, still inside capacity).",
+      "byte_example": "vector/string of size S (capacity > S) + [index = S]  -> READ one past size() but within capacity. exactly S, not past capacity.",
       "fp_guard": "Exactly one past size(); not past capacity (different bug / both builds)."
     },
     "container-overflow-write": {
@@ -181,6 +206,7 @@
       "aliases": ["container-overflow write"],
       "sink": "Write to a container element past size() but within capacity.",
       "recipe": "Write index = size().",
+      "byte_example": "container size S (capacity > S) + [write_index = S]  -> WRITE one past size(), within capacity. one past only.",
       "fp_guard": "One past size() only."
     },
     "dynamic-stack-buffer-overflow-write": {
@@ -188,6 +214,7 @@
       "aliases": ["dynamic-stack-buffer-overflow write", "dynamic-stack-buffer-overflow"],
       "sink": "Overflow of a variable-length array (VLA) on the stack sized from an input count.",
       "recipe": "Let `count` size the VLA, then write `count+1` elements (one past). Keep `count` itself honest/small.",
+      "byte_example": "[count=N (small)] + <N+1 elements>  -> VLA sized N on the stack, write one past. keep count small (huge count = stack OOM in both builds).",
       "fp_guard": "Don't make `count` huge (stack OOM in both builds); the write index exceeds it by one."
     },
     "incorrect-function-pointer-type": {
@@ -195,6 +222,7 @@
       "aliases": ["incorrect-function-pointer-type", "function-pointer", "cfi"],
       "sink": "UBSan/CFI: a call through a function pointer whose declared type mismatches the callee.",
       "recipe": "A tag/opcode field selecting a handler/callback whose signature differs from the dispatch site's function-pointer type.",
+      "byte_example": "[opcode = H] selecting handler H whose signature != the dispatch fn-ptr type  -> call through mismatched fn-ptr. pick a REAL-but-mismatched id; rest of the record valid.",
       "fp_guard": "Pick a real-but-mismatched handler id; keep the rest of the record valid."
     }
   }
