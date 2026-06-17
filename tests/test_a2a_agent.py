@@ -248,8 +248,10 @@ def test_run_retries_with_opus_when_poc_but_no_crash(tmp_path: Path, monkeypatch
     import schemata.discriminate as disc_mod
     monkeypatch.setattr(disc_mod, "discriminate_enabled", lambda s: False)  # isolate the retry gate
 
-    cand = tmp_path / "cand.bin"; cand.write_bytes(b"NOCRASH")
-    win = tmp_path / "win.bin"; win.write_bytes(b"WIN")
+    cand = tmp_path / "cand.bin"
+    cand.write_bytes(b"NOCRASH")
+    win = tmp_path / "win.bin"
+    win.write_bytes(b"WIN")
     backend = _SeqBackend({
         "recon":   [StageResult(stage="recon",
                                 structured_output={"vuln_classes": ["heap-buffer-overflow-read"]})],
@@ -299,7 +301,8 @@ def test_metrics_line_reports_atomic_and_poc_no_crash(tmp_path: Path, monkeypatc
     arena run can be attributed: atomic_examples (did vuln_classes reach generate),
     gen_model (was a hard task stuck on sonnet), and poc_no_crash (bytes produced but no
     crash — the state where the `poc is None` retry gate wrongly suppresses Opus)."""
-    poc = tmp_path / "cand.bin"; poc.write_bytes(b"NOCRASH")
+    poc = tmp_path / "cand.bin"
+    poc.write_bytes(b"NOCRASH")
     results = {
         "recon": StageResult(stage="recon",
                              structured_output={"vuln_classes": ["heap-buffer-overflow-read"]}),
