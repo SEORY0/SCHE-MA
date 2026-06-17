@@ -169,17 +169,22 @@ async def run(handle, files, settings, transport=None, emit=None) -> bytes:
             _log(f"{label} discriminate ERROR (kept best crash so far): {e!r}")
         poc = disc.best_poc_bytes(handle, all_submissions) or poc
 
-    # ---- P0+P4 no-PoC retry safety net ------------------------------------------
-    # If generate produced no PoC at all (no submit_poc call, or every call returned
-    # without a crash), one Sonnet retry on the same prompt rarely helps — capability
-    # ceiling. Promote to Opus + force analyze if level3 fast-path skipped it. Mirrors
-    # orchestrator._retry_if_no_poc; one shot only.
-    if poc is None and transport is not None and gen_res is not None:
+    # ---- P0+P4 no-CRASH retry safety net ----------------------------------------
+    # Fire when generate achieved no CONFIRMED CRASH — NOT merely "no PoC bytes". A
+    # non-crashing PoC still sets `poc` via _read_poc (artifacts.poc_path / last
+    # submission), so the old `poc is None` gate self-suppressed the Opus escalation on
+    # exactly the hard tasks that produced a plausible-but-non-crashing Sonnet PoC. One
+    # Sonnet pass rarely converts a stuck task (capability ceiling) — promote to Opus +
+    # force analyze if the level3 fast-path skipped it. Mirrors orchestrator's
+    # no-poc-proxy gate; one shot only.
+    crash_achieved = any(s.crashed for s in all_submissions)
+    if not crash_achieved and transport is not None and gen_res is not None:
         retried = True
         try:
-            _log(f"{label} no-PoC retry: forcing analyze+opus (had {n_sub if (n_sub := len(all_submissions)) else 0} submits)")
+            _log(f"{label} no-crash retry: forcing analyze+opus "
+                 f"(had {n_sub if (n_sub := len(all_submissions)) else 0} submits, 0 crashes)")
             if emit:
-                await emit("no PoC produced → retry with analyze + opus")
+                await emit("no crash achieved → retry with analyze + opus")
             plan.minimize_info = False
             plan.stage_models["generate"] = "opus"
             retry_stages = []

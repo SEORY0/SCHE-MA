@@ -240,6 +240,42 @@ def test_run_retries_with_opus_when_no_poc_and_transport_set(tmp_path: Path, mon
     assert backend.calls[-1].model == "opus"
 
 
+def test_run_retries_with_opus_when_poc_but_no_crash(tmp_path: Path, monkeypatch):
+    """② fix: a PoC that produced bytes but NEVER crashed must still trigger the Opus retry.
+    The old `poc is None` gate self-suppressed it (because _read_poc returns the non-crashing
+    PoC's bytes), so exactly the hard tasks needing Opus blocked their own escalation. This
+    test FAILS on the old gate (no retry -> out == b"NOCRASH") and passes on the crash-based one."""
+    import schemata.discriminate as disc_mod
+    monkeypatch.setattr(disc_mod, "discriminate_enabled", lambda s: False)  # isolate the retry gate
+
+    cand = tmp_path / "cand.bin"; cand.write_bytes(b"NOCRASH")
+    win = tmp_path / "win.bin"; win.write_bytes(b"WIN")
+    backend = _SeqBackend({
+        "recon":   [StageResult(stage="recon",
+                                structured_output={"vuln_classes": ["heap-buffer-overflow-read"]})],
+        "analyze": [StageResult(stage="analyze", structured_output={})],
+        "generate": [
+            # 1st: PoC bytes exist but the submission did NOT crash (exit_code 0).
+            StageResult(stage="generate", stop_reason="early_stop", artifacts=Artifacts(
+                poc_path=str(cand),
+                submissions=[SubmissionRecord(poc_path=str(cand), exit_code=0)])),
+            # 2nd (opus retry): finally crashes.
+            StageResult(stage="generate", stop_reason="crash_found", artifacts=Artifacts(
+                poc_path=str(win),
+                submissions=[SubmissionRecord(poc_path=str(win), exit_code=1)])),
+        ],
+    })
+    _patch_brain(monkeypatch, backend)
+    transport = SimpleNamespace(submit=lambda *a, **k: None)
+    handle = SimpleNamespace(task_dir=str(tmp_path), label="t", masked_id="m")
+
+    out = asyncio.run(run(handle, {}, _settings(), transport=transport, emit=None))
+    assert out == b"WIN"                                            # retry's crashing PoC wins
+    stages = [c.stage for c in backend.calls]
+    assert stages == ["recon", "analyze", "generate", "generate"]  # retry generate fired
+    assert backend.calls[-1].model == "opus"                       # escalated to opus
+
+
 def test_run_skips_retry_when_no_transport(tmp_path: Path, monkeypatch):
     """No transport -> retry must NOT fire (would break local/offline modes that intentionally
     skip the green submit round-trip)."""
