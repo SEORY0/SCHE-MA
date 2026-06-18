@@ -41,6 +41,14 @@ The script auto-detects `python3.12`, `python3.13`, or `python3` (whichever is
 It does NOT require pyenv, a local cybergym clone, or an API key — those are
 optional (see below).
 
+`scripts/setup.sh` also creates local config files from tracked templates:
+`config/templates/schemata.toml -> config/schemata.toml` and
+`config/templates/routing_rules.json -> config/routing_rules.json`. The generated
+`config/*` files are git-ignored so each machine can keep its own CyberGym paths.
+For local `arvo:*` tasks, either set `CYBERGYM_CLONE_DIR` or `CYBERGYM_DIR`
+before setup so `external/cybergym` is symlinked, or override `CYBERGYM_PYTHON`,
+`CYBERGYM_DATA_DIR`, and `CYBERGYM_MASK_MAP` in your shell.
+
 ### Fully manual (if the script can't be used)
 
 ```bash
@@ -152,7 +160,8 @@ summarize newly added patch invariants. The result is preserved under
 `prior["mech_intel"]`; recon carries those fields forward into `prior["recon"]`
 so analyze/generate can use both the immutable seed and the refined recon.
 
-Stage models are configurable in `config/schemata.toml`:
+Stage models are configurable in generated local `config/schemata.toml`
+(template: `config/templates/schemata.toml`):
 
 ```toml
 [models]
@@ -228,7 +237,7 @@ docker push  ghcr.io/seory0/schemata-cybergym:latest
 - `src/schemata/cybergym/` — `task_gen.py`, `submit.py`, `intake.py`, `ids.py`
 - `src/schemata/{router,cost_tracker,prompt_loader,instrument,recon}.py`
 - `prompts/` — stage system prompts + shared situational-context / output-contract
-- `config/schemata.toml`, `config/routing_rules.json`
+- `config/templates/` - tracked config templates; generated `config/*` is local/ignored
 - `scripts/classify_cybergym_description.py` — description-only memory bug family classifier
 - `submit/` — Quick Submit Config JSONs for the leaderboard
 

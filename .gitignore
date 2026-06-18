@@ -2,6 +2,10 @@
 __pycache__/
 *.pyc
 .env
+config/*
+!config/
+!config/templates/
+!config/templates/*
 runs/
 *.db
 /tmp/

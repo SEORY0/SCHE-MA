@@ -9,11 +9,13 @@ from .config import PKG_ROOT, Settings
 from .models import PipelinePlan, TaskMeta
 
 ROUTING_RULES = PKG_ROOT / "config" / "routing_rules.json"
+ROUTING_RULES_TEMPLATE = PKG_ROOT / "config" / "templates" / "routing_rules.json"
 
 
 @lru_cache(maxsize=1)
 def _rules() -> dict:
-    with open(ROUTING_RULES) as f:
+    path = ROUTING_RULES if ROUTING_RULES.exists() else ROUTING_RULES_TEMPLATE
+    with open(path) as f:
         return json.load(f)
 
 

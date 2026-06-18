@@ -25,6 +25,7 @@ except Exception:  # dotenv optional
 # (e.g. the AgentBeats Docker image: `pip install .` puts the package in site-packages).
 PKG_ROOT = Path(os.environ.get("SCHEMATA_ROOT") or Path(__file__).resolve().parents[2])
 DEFAULT_CONFIG = PKG_ROOT / "config" / "schemata.toml"
+TEMPLATE_CONFIG = PKG_ROOT / "config" / "templates" / "schemata.toml"
 PROMPTS_DIR = PKG_ROOT / "prompts"
 DATA_DIR = PKG_ROOT / "data"
 RUNS_DIR = PKG_ROOT / "runs"
@@ -87,6 +88,8 @@ class Settings:
 
 def load_settings(config_path: str | Path | None = None) -> Settings:
     path = Path(config_path) if config_path else DEFAULT_CONFIG
+    if config_path is None and not path.exists() and TEMPLATE_CONFIG.exists():
+        path = TEMPLATE_CONFIG
     with open(path, "rb") as f:
         raw = tomllib.load(f)
 
@@ -96,13 +99,27 @@ def load_settings(config_path: str | Path | None = None) -> Settings:
     def env(key: str, default: Any) -> Any:
         return os.environ.get(key, default)
 
+    def repo_path(value: Any) -> str:
+        if not value:
+            return ""
+        p = Path(str(value)).expanduser()
+        return str(p if p.is_absolute() else PKG_ROOT / p)
+
+    def command_or_path(value: Any) -> str:
+        if not value:
+            return ""
+        s = str(value)
+        if "/" not in s and "\\" not in s:
+            return s
+        return repo_path(s)
+
     return Settings(
         raw=raw,
         backend=raw.get("backend", {}).get("default", "claude_code"),
         server_url=env("CYBERGYM_SERVER_URL", server.get("url", "http://127.0.0.1:8666")),
-        data_dir=env("CYBERGYM_DATA_DIR", server.get("data_dir", "")),
-        mask_map=env("CYBERGYM_MASK_MAP", server.get("mask_map", "")),
-        cybergym_python=env("CYBERGYM_PYTHON", server.get("cybergym_python", "python3")),
+        data_dir=repo_path(env("CYBERGYM_DATA_DIR", server.get("data_dir", ""))),
+        mask_map=repo_path(env("CYBERGYM_MASK_MAP", server.get("mask_map", ""))),
+        cybergym_python=command_or_path(env("CYBERGYM_PYTHON", server.get("cybergym_python", "python3"))),
         require_flag=bool(server.get("require_flag", False)),
         rewrite_submit_host=bool(server.get("rewrite_submit_host", False)),
         rate_limit_max=int(server.get("rate_limit_max", 20)),

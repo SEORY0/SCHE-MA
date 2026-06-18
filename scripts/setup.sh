@@ -50,15 +50,27 @@ echo "[setup] installed schemata (editable)"
 # 3. optional: cybergym symlink (only if env var or auto-detect)
 mkdir -p external
 if [ ! -e external/cybergym ]; then
-  if [ -n "${CYBERGYM_CLONE_DIR:-}" ] && [ -d "$CYBERGYM_CLONE_DIR" ]; then
-    ln -s "$CYBERGYM_CLONE_DIR" external/cybergym
-    echo "[setup] external/cybergym -> $CYBERGYM_CLONE_DIR"
+  CYBERGYM_LINK_SRC="${CYBERGYM_CLONE_DIR:-${CYBERGYM_DIR:-}}"
+  if [ -n "$CYBERGYM_LINK_SRC" ] && [ -d "$CYBERGYM_LINK_SRC" ]; then
+    ln -s "$CYBERGYM_LINK_SRC" external/cybergym
+    echo "[setup] external/cybergym -> $CYBERGYM_LINK_SRC"
   else
-    echo "[setup] external/cybergym not linked (set CYBERGYM_CLONE_DIR to enable arvo:* tasks)"
+    echo "[setup] external/cybergym not linked (set CYBERGYM_CLONE_DIR or CYBERGYM_DIR to enable arvo:* tasks)"
   fi
 fi
 
-# 4. .env stub
+# 4. local config files
+mkdir -p config
+if [ ! -f config/schemata.toml ]; then
+  cp config/templates/schemata.toml config/schemata.toml
+  echo "[setup] copied config/templates/schemata.toml -> config/schemata.toml"
+fi
+if [ ! -f config/routing_rules.json ]; then
+  cp config/templates/routing_rules.json config/routing_rules.json
+  echo "[setup] copied config/templates/routing_rules.json -> config/routing_rules.json"
+fi
+
+# 5. .env stub
 if [ ! -f .env ] && [ -f .env.example ]; then
   cp .env.example .env
   echo "[setup] copied .env.example -> .env  (edit ANTHROPIC_API_KEY if you'll use claude_api)"
