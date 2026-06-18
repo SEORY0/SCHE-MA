@@ -5,9 +5,9 @@ default = "claude_code"          # "claude_code" | "claude_api"
 
 [server]
 url = "http://127.0.0.1:8666"
-data_dir = "/data/seory0/projects/cybergym/cybergym_data/data"
-mask_map = "/data/seory0/projects/cybergym/mask_map.json"
-cybergym_python = "/data/seory0/projects/cybergym/.venv/bin/python"
+data_dir = "external/cybergym/cybergym_data/data"
+mask_map = "external/cybergym/mask_map.json"
+cybergym_python = "external/cybergym/.venv/bin/python"
 require_flag = false
 # When the agent runs INSIDE a container, the submit server is on the docker host.
 # Set true for the containerized API backend (M5); false for host-run Claude Code.
