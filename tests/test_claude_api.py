@@ -4,6 +4,7 @@ Proves: multi-turn tool_use loop, dispatcher tool execution, usage accumulation 
 turns, final-JSON extraction, cost computation, and the error path.
 """
 import asyncio
+import json
 import types
 
 from schemata.backends.claude_api import ClaudeApiBackend
@@ -123,3 +124,31 @@ def test_no_flush_when_json_already_emitted(tmp_path):
     res = asyncio.run(backend.run_stage(_req(tmp_path)))
     assert res.structured_output.get("crash_type") == "x"
     assert res.usage.input_tokens == 150 and res.usage.output_tokens == 30  # no extra flush turn
+
+
+def test_writes_stage_trace_jsonl(tmp_path):
+    scripted = [
+        _msg("tool_use",
+             [_text("checking"), _tu("tu1", "bash", {"cmd": "echo trace"})],
+             _usage(100, 10)),
+        _msg("end_turn", [_text('```json\n{"crash_type":"x"}\n```')], _usage(50, 20)),
+    ]
+    settings = load_settings()
+    settings.raw.setdefault("logging", {})["trace_api_messages"] = True
+    backend = ClaudeApiBackend(settings, client=_FakeClient(scripted))
+    res = asyncio.run(backend.run_stage(_req(tmp_path)))
+
+    trace_path = tmp_path / "stage_recon_trace.jsonl"
+    rows = [json.loads(line) for line in trace_path.read_text(encoding="utf-8").splitlines()]
+    assert res.structured_output == {"crash_type": "x"}
+    assert [r["event"] for r in rows] == [
+        "stage_start",
+        "api_request",
+        "assistant_message",
+        "tool_results",
+        "api_request",
+        "assistant_message",
+        "stage_end",
+    ]
+    assert rows[3]["results"][0]["name"] == "bash"
+    assert rows[-1]["structured_output"] == {"crash_type": "x"}
