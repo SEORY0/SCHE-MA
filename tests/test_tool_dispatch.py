@@ -41,7 +41,18 @@ def test_tools_for_tiers(tmp_path):
 def test_bash_allowlist():
     assert permissions.bash_allowed("read_only", "tar -xzf repo-vul.tar.gz")[0]
     assert permissions.bash_allowed("read_only", "grep -rn foo . | head")[0]
+    assert permissions.bash_allowed(
+        "read_only",
+        r'grep -rn "LLVMFuzzerTestOneInput\|int main(" src-vul/ | head -20',
+    )[0]
+    assert permissions.bash_allowed(
+        "read_only",
+        r'rg "LLVMFuzzerTestOneInput|main" src-vul/ --max-count=10',
+    )[0]
+    assert permissions.bash_allowed("read_only", r"grep -rn 'foo|bar' src-vul/ | head")[0]
+    assert permissions.bash_allowed("read_only", r'grep -rn "a > b" src-vul/ | head')[0]
     assert not permissions.bash_allowed("read_only", "rm -rf src")[0]
+    assert not permissions.bash_allowed("read_only", "grep -rn foo . | rm -rf src")[0]
     assert not permissions.bash_allowed("read_only", "cat x > y")[0]
     # full tier is unrestricted
     assert permissions.bash_allowed("full", "rm -rf build && make")[0]

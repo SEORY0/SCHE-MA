@@ -13,6 +13,7 @@ is unrestricted (the harness runs on a trusted machine inside the task dir).
 from __future__ import annotations
 
 import re
+import shlex
 
 from ...models import StageRequest
 from . import definitions as d
@@ -25,8 +26,6 @@ READONLY_BASH_ALLOW = {
     "md5sum", "basename", "dirname", "echo", "true", "stat", "realpath", "which",
 }
 
-# Split a command into pipeline/sequence segments to validate each leading program.
-_SEGMENT_SPLIT = re.compile(r"\|\||&&|[|;&]")
 _ENV_ASSIGN = re.compile(r"^\w+=\S*$")
 
 
@@ -49,14 +48,82 @@ def tools_for(req: StageRequest) -> list[dict]:
     return [d.tool(n) for n in seen]
 
 
+def _split_shell_segments(cmd: str) -> list[str]:
+    """Split on shell control operators while respecting quotes and backslash escapes."""
+    segments: list[str] = []
+    start = 0
+    quote: str | None = None
+    i = 0
+    while i < len(cmd):
+        ch = cmd[i]
+        if ch == "\\" and quote != "'":
+            i += 2
+            continue
+        if quote:
+            if ch == quote:
+                quote = None
+            i += 1
+            continue
+        if ch in ("'", '"'):
+            quote = ch
+            i += 1
+            continue
+        if cmd.startswith("&&", i) or cmd.startswith("||", i):
+            seg = cmd[start:i].strip()
+            if seg:
+                segments.append(seg)
+            i += 2
+            start = i
+            continue
+        if ch in "|;&":
+            seg = cmd[start:i].strip()
+            if seg:
+                segments.append(seg)
+            i += 1
+            start = i
+            continue
+        i += 1
+    tail = cmd[start:].strip()
+    if tail:
+        segments.append(tail)
+    return segments
+
+
+def _has_unquoted_output_redirection(cmd: str) -> bool:
+    """Return true for shell output redirection outside quotes/escapes."""
+    quote: str | None = None
+    i = 0
+    while i < len(cmd):
+        ch = cmd[i]
+        if ch == "\\" and quote != "'":
+            i += 2
+            continue
+        if quote:
+            if ch == quote:
+                quote = None
+            i += 1
+            continue
+        if ch in ("'", '"'):
+            quote = ch
+            i += 1
+            continue
+        if ch == ">":
+            return True
+        i += 1
+    return False
+
+
 def bash_allowed(tier: str, cmd: str) -> tuple[bool, str]:
     """Gate a bash command. Only the read_only tier is restricted."""
     if tier != "read_only":
         return True, ""
-    if ">" in cmd:
+    if _has_unquoted_output_redirection(cmd):
         return False, "output redirection is not allowed in the Recon (read_only) stage"
-    for seg in _SEGMENT_SPLIT.split(cmd):
-        toks = seg.split()
+    for seg in _split_shell_segments(cmd):
+        try:
+            toks = shlex.split(seg, posix=True)
+        except ValueError as e:
+            return False, f"could not parse bash command in the Recon (read_only) stage: {e}"
         # skip leading VAR=val env assignments
         i = 0
         while i < len(toks) and _ENV_ASSIGN.match(toks[i]):
