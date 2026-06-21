@@ -7,7 +7,20 @@
       "sink": "memcpy/memmove or buf[i] READ where the index/length comes from one input field but the buffer was heap-sized from another field (or a constant).",
       "recipe": "Keep a valid base that reaches the sink; set the read offset/index = len+1 where len is the buffer's own (smaller) size field. One past — minimum margin.",
       "byte_example": "hdr + [size=N] + <N valid bytes> + [read_index=N]  -> buffer holds 0..N-1; only read_index is +1 past. every other byte well-formed.",
-      "fp_guard": "An oversized index / huge length crashes the FIXED build too (score 0). Violate exactly ONE field by one step; keep every other byte valid."
+      "fp_guard": "An oversized index / huge length crashes the FIXED build too (score 0). Violate exactly ONE field by one step; keep every other byte valid.",
+      "description_keywords": ["heap-buffer-overflow", "out-of-bounds read", "OOB read", "buffer over-read", "read past", "read beyond allocated", "heap buffer overflow read"],
+      "construction_strategies": [
+        {"name": "seed-mutate", "when": "in-repo seed/corpus/testdata exists for this format", "steps": "1. Find seed file (corpus/testdata/test/sample/example dirs). 2. Copy as bytearray. 3. Identify the field controlling the read index/offset at the sink (from localization). 4. Set that field = buffer_size (one past). 5. Recompute any checksums/CRCs if the format requires them."},
+        {"name": "format-skeleton-grow", "when": "whole-file harness (AFL/custom-main), no usable seed", "steps": "1. Read harness to find format magic + minimum valid header. 2. Build: magic + header + at least one record/chunk with all fields valid. 3. Set the read-index/offset field at the sink to buffer_size. 4. Keep file structurally complete (don't truncate mid-record)."},
+        {"name": "fdp-carve", "when": "harness uses FuzzedDataProvider", "steps": "1. Read FDP consumption order (front-to-back for data, back-to-front for bools/ints). 2. Map each ConsumeX call to byte positions. 3. Fill all positions with valid values. 4. Set the position controlling the read index = alloc_size."},
+        {"name": "libfuzzer-minimal", "when": "thin libFuzzer wrapper passing raw bytes to a parser", "steps": "1. Read min_size gate (if size < N return 0). 2. Build N+ bytes. 3. Set the byte(s) at the offset the parser reads for the buffer index = allocated+1."}
+      ],
+      "candidate_families": [
+        {"name": "seed-mutate-index", "priority": 1, "description": "Copy in-repo seed verbatim, set read index field = allocated_size (one past). Fastest path when a seed exists."},
+        {"name": "skeleton-size-mismatch", "priority": 2, "description": "Build minimal valid file with two size fields: alloc_size=N (small), read_offset=N. Parser allocates N bytes, reads at offset N."},
+        {"name": "boundary-probe", "priority": 3, "description": "Try read_index = allocated_size, allocated_size-1, allocated_size+1 to find the exact triggering value."},
+        {"name": "fdp-field-overflow", "priority": 4, "description": "When FuzzedDataProvider is used: fill consumption fields, set the one controlling buffer index = alloc+1."}
+      ]
     },
     "heap-buffer-overflow-write": {
       "label": "Heap-buffer-overflow WRITE", "sanitizer": "asan",
@@ -15,7 +28,19 @@
       "sink": "memcpy/strcpy/buf[i]=... WRITE into a heap allocation sized from one field while the copy length comes from another.",
       "recipe": "Source/copy length = capacity+1 (one byte past the allocation). Keep the allocation-sizing field at its honest small value.",
       "byte_example": "hdr + [alloc_len=N] + [copy_len=N+1] + <N+1 bytes>  -> dst heap-sized N, copy writes one past. alloc_len stays N (do NOT enlarge it).",
-      "fp_guard": "Don't enlarge the allocation field too — only the length must exceed capacity by one."
+      "fp_guard": "Don't enlarge the allocation field too — only the length must exceed capacity by one.",
+      "description_keywords": ["heap-buffer-overflow", "out-of-bounds write", "OOB write", "buffer overflow write", "write past", "heap buffer overflow write", "overflow"],
+      "construction_strategies": [
+        {"name": "seed-mutate", "when": "in-repo seed exists", "steps": "1. Copy seed as bytearray. 2. Find the field controlling copy/write length at the sink. 3. Set copy_len = alloc_len + 1. 4. Ensure the source data has copy_len bytes available. 5. Keep alloc_len unchanged."},
+        {"name": "format-skeleton-grow", "when": "whole-file harness, no seed", "steps": "1. Build valid file: magic + header + records. 2. Set copy_len = alloc_len + 1 in the record reaching the sink. 3. Provide copy_len bytes of source data."},
+        {"name": "fdp-carve", "when": "FuzzedDataProvider harness", "steps": "1. Map FDP consumption. 2. Set the length field that controls the copy = alloc+1. 3. Fill remaining with valid defaults."},
+        {"name": "libfuzzer-minimal", "when": "thin wrapper", "steps": "1. Build bytes >= min_size. 2. Set copy length field = allocation + 1."}
+      ],
+      "candidate_families": [
+        {"name": "seed-mutate-length", "priority": 1, "description": "Copy seed, increase copy/write length field by 1 past allocation size."},
+        {"name": "skeleton-length-mismatch", "priority": 2, "description": "Build minimal valid file, alloc_size=N, copy_len=N+1, provide N+1 source bytes."},
+        {"name": "boundary-probe", "priority": 3, "description": "Try copy_len = alloc+1, alloc+2, alloc (should not crash) to isolate the trigger."}
+      ]
     },
     "stack-buffer-overflow-read": {
       "label": "Stack-buffer-overflow READ", "sanitizer": "asan",
@@ -23,7 +48,18 @@
       "sink": "Read of a fixed-size local array `buf[N]` at an attacker-influenced index.",
       "recipe": "Index = N (first out-of-range). Keep the input structurally valid up to that read.",
       "byte_example": "<valid prefix reaching the read of buf[N]> + [index=N]  -> N is the first out-of-range slot (valid 0..N-1).",
-      "fp_guard": "Index far past N or corrupt structure crashes both builds."
+      "fp_guard": "Index far past N or corrupt structure crashes both builds.",
+      "description_keywords": ["stack-buffer-overflow", "stack buffer overflow read", "local array read", "stack overread"],
+      "construction_strategies": [
+        {"name": "seed-mutate", "when": "in-repo seed exists", "steps": "1. Copy seed. 2. Find the field controlling the array index at the sink. 3. Set index = N (the fixed array size). 4. Keep rest unchanged."},
+        {"name": "format-skeleton-grow", "when": "whole-file harness, no seed", "steps": "1. Build valid file reaching the function with buf[N]. 2. Set the index field = N. 3. Keep all prior fields valid so the parser reaches the read."},
+        {"name": "libfuzzer-minimal", "when": "thin wrapper", "steps": "1. Build bytes >= min_size. 2. Set the byte controlling the index = N (array bound)."}
+      ],
+      "candidate_families": [
+        {"name": "seed-mutate-index", "priority": 1, "description": "Copy seed, set index = array_size (first OOB)."},
+        {"name": "skeleton-index-N", "priority": 2, "description": "Build minimal valid input reaching the read, index = N."},
+        {"name": "boundary-sweep", "priority": 3, "description": "Try index = N-1 (valid), N (trigger), N+1 to confirm boundary."}
+      ]
     },
     "stack-buffer-overflow-write": {
       "label": "Stack-buffer-overflow WRITE", "sanitizer": "asan",
@@ -31,7 +67,17 @@
       "sink": "Unchecked copy/loop into a fixed local array `buf[N]`.",
       "recipe": "A subfield whose decoded length is exactly N+1 bytes into a `buf[N]`. One past.",
       "byte_example": "op + [sublen=N+1] + <N+1 bytes>  -> copied into a fixed buf[N]; one byte past. keep N+1, not a huge length.",
-      "fp_guard": "A wildly long field overruns into unrelated frames and crashes both builds."
+      "fp_guard": "A wildly long field overruns into unrelated frames and crashes both builds.",
+      "description_keywords": ["stack-buffer-overflow", "stack buffer overflow write", "local buffer overflow", "stack overflow write"],
+      "construction_strategies": [
+        {"name": "seed-mutate", "when": "in-repo seed exists", "steps": "1. Copy seed. 2. Find the length/count field controlling the copy into buf[N]. 3. Set it to N+1. 4. Provide N+1 bytes of data."},
+        {"name": "format-skeleton-grow", "when": "no seed", "steps": "1. Build valid file reaching the copy. 2. Set copy length = N+1."},
+        {"name": "libfuzzer-minimal", "when": "thin wrapper", "steps": "1. Build bytes >= min_size. 2. Set the length field = N+1."}
+      ],
+      "candidate_families": [
+        {"name": "seed-mutate-length", "priority": 1, "description": "Copy seed, set copy length = buf_size + 1."},
+        {"name": "skeleton-overwrite", "priority": 2, "description": "Build minimal valid input, copy N+1 bytes into buf[N]."}
+      ]
     },
     "stack-buffer-underflow-read": {
       "label": "Stack-buffer-underflow READ", "sanitizer": "asan",
@@ -39,7 +85,16 @@
       "sink": "Read of a local array at a negative index (signed offset/seek goes below 0).",
       "recipe": "A signed offset/index field = -1 (first below the array base). Keep all else valid.",
       "byte_example": "<valid prefix> + [signed_offset=-1 (0xFF..FF)]  -> READ at base-1, first byte below the array. only this field is negative.",
-      "fp_guard": "Large negative values may hit unmapped memory and crash both builds."
+      "fp_guard": "Large negative values may hit unmapped memory and crash both builds.",
+      "description_keywords": ["stack-buffer-underflow", "negative index", "underflow read", "buffer underflow"],
+      "construction_strategies": [
+        {"name": "seed-mutate", "when": "in-repo seed exists", "steps": "1. Copy seed. 2. Set signed offset/index = -1 (0xFF or 0xFFFFFFFF). 3. Keep rest valid."},
+        {"name": "format-skeleton-grow", "when": "no seed", "steps": "1. Build valid file reaching the array access. 2. Set signed index = -1."}
+      ],
+      "candidate_families": [
+        {"name": "seed-mutate-negative", "priority": 1, "description": "Copy seed, set signed index = -1 (0xFF..FF)."},
+        {"name": "skeleton-negative-one", "priority": 2, "description": "Build valid input, set the single signed field = -1."}
+      ]
     },
     "stack-buffer-underflow-write": {
       "label": "Stack-buffer-underflow WRITE", "sanitizer": "asan",
@@ -47,7 +102,16 @@
       "sink": "Write to a local array at a negative index.",
       "recipe": "Signed write index/offset = -1. Minimum underflow only.",
       "byte_example": "<valid prefix> + [signed_write_index=-1]  -> WRITE at base-1 only; deeper underflow corrupts the frame in both builds.",
-      "fp_guard": "Only -1; deeper underflow corrupts the frame in both builds."
+      "fp_guard": "Only -1; deeper underflow corrupts the frame in both builds.",
+      "description_keywords": ["stack-buffer-underflow write", "negative index write", "underflow write"],
+      "construction_strategies": [
+        {"name": "seed-mutate", "when": "in-repo seed exists", "steps": "1. Copy seed. 2. Set signed write index = -1."},
+        {"name": "format-skeleton-grow", "when": "no seed", "steps": "1. Build valid file. 2. Set signed write index = -1."}
+      ],
+      "candidate_families": [
+        {"name": "seed-mutate-negative", "priority": 1, "description": "Copy seed, set signed write index = -1."},
+        {"name": "skeleton-negative-one", "priority": 2, "description": "Build valid input with signed write index = -1."}
+      ]
     },
     "global-buffer-overflow-read": {
       "label": "Global-buffer-overflow READ", "sanitizer": "asan",
@@ -55,7 +119,16 @@
       "sink": "Indexing a static/global table/array with an attacker-controlled index (READ).",
       "recipe": "Index = table_len (first out of range). Reach the lookup with a valid prefix.",
       "byte_example": "<valid prefix to the table lookup> + [index=TABLE_LEN]  -> first slot past a static table (valid 0..TABLE_LEN-1).",
-      "fp_guard": "An absurd index reads unmapped memory in both builds."
+      "fp_guard": "An absurd index reads unmapped memory in both builds.",
+      "description_keywords": ["global-buffer-overflow", "global buffer overflow read", "static array overflow", "global array read"],
+      "construction_strategies": [
+        {"name": "seed-mutate", "when": "in-repo seed exists", "steps": "1. Copy seed. 2. Set table index field = TABLE_LEN. 3. Keep rest valid."},
+        {"name": "format-skeleton-grow", "when": "no seed", "steps": "1. Build valid input reaching the table lookup. 2. Set index = TABLE_LEN."}
+      ],
+      "candidate_families": [
+        {"name": "seed-mutate-index", "priority": 1, "description": "Copy seed, set table index = table_len."},
+        {"name": "skeleton-table-overflow", "priority": 2, "description": "Build valid input, set lookup index = table size."}
+      ]
     },
     "global-buffer-overflow-write": {
       "label": "Global-buffer-overflow WRITE", "sanitizer": "asan",
@@ -63,7 +136,16 @@
       "sink": "Writing into a static/global table at an attacker-controlled index.",
       "recipe": "Write index = table_len (first out of range).",
       "byte_example": "<valid prefix> + [write_index=TABLE_LEN]  -> one past the global table; no further.",
-      "fp_guard": "One past only."
+      "fp_guard": "One past only.",
+      "description_keywords": ["global-buffer-overflow write", "global buffer overflow write", "static array write"],
+      "construction_strategies": [
+        {"name": "seed-mutate", "when": "in-repo seed exists", "steps": "1. Copy seed. 2. Set write index = TABLE_LEN."},
+        {"name": "format-skeleton-grow", "when": "no seed", "steps": "1. Build valid input. 2. Set write index = TABLE_LEN."}
+      ],
+      "candidate_families": [
+        {"name": "seed-mutate-index", "priority": 1, "description": "Copy seed, set write index = table_len."},
+        {"name": "skeleton-table-overflow", "priority": 2, "description": "Build valid input, set write index = table_len."}
+      ]
     },
     "heap-use-after-free-read": {
       "label": "Heap-use-after-free READ", "sanitizer": "asan",
@@ -71,7 +153,18 @@
       "sink": "A read through a pointer that was freed on an earlier error/cleanup/realloc path.",
       "recipe": "Drive the error/realloc path that frees `p`, then a FOLLOWING valid record re-references the same id/handle so it is read. Both records parse; the crash is the ORDERING, not malformed bytes.",
       "byte_example": "record_A{id=7, triggers error/realloc -> free(p7)} ; record_B{id=7, valid -> READ p7}  -> ordering bug; BOTH records are well-formed.",
-      "fp_guard": "Don't malform the second record — it must be valid; only the free-then-reuse sequence triggers the bug (and only on the vul build)."
+      "fp_guard": "Don't malform the second record — it must be valid; only the free-then-reuse sequence triggers the bug (and only on the vul build).",
+      "description_keywords": ["use-after-free", "heap-use-after-free", "UAF", "use after free read", "freed memory read", "dangling pointer read"],
+      "construction_strategies": [
+        {"name": "seed-mutate-ordering", "when": "in-repo seed with multiple records/objects", "steps": "1. Copy seed. 2. Identify which record triggers the free path. 3. Add/reorder a second record that references the same id/handle AFTER the free. 4. Keep both records individually valid."},
+        {"name": "format-skeleton-grow", "when": "no seed", "steps": "1. Build valid input with TWO records/operations. 2. Record A: triggers the error/cleanup path that frees pointer p. 3. Record B: references the same handle/id. 4. Both records well-formed."},
+        {"name": "realloc-trigger", "when": "sink involves realloc", "steps": "1. Build input that causes a realloc. 2. A following operation uses the OLD pointer (pre-realloc)."}
+      ],
+      "candidate_families": [
+        {"name": "ordering-free-then-read", "priority": 1, "description": "Two well-formed records: first triggers free/error path, second references same handle (READ)."},
+        {"name": "seed-reorder", "priority": 2, "description": "Copy seed, duplicate/reorder records to create free-then-use sequence."},
+        {"name": "error-path-trigger", "priority": 3, "description": "First record triggers a specific error condition that frees memory, second record uses it normally."}
+      ]
     },
     "heap-use-after-free-write": {
       "label": "Heap-use-after-free WRITE", "sanitizer": "asan",
@@ -79,7 +172,16 @@
       "sink": "A write through a pointer freed on an earlier path.",
       "recipe": "Same free-then-reuse ordering as UAF-read, but the reused handle is written (e.g., an update/append op on the freed object).",
       "byte_example": "record_A{id=7 -> free(p7)} ; record_B{op=update, id=7, valid -> WRITE p7}  -> ordering only; keep both records valid.",
-      "fp_guard": "Sequence/ordering only; keep both records well-formed."
+      "fp_guard": "Sequence/ordering only; keep both records well-formed.",
+      "description_keywords": ["use-after-free write", "heap-use-after-free write", "UAF write", "freed memory write", "dangling pointer write"],
+      "construction_strategies": [
+        {"name": "seed-mutate-ordering", "when": "in-repo seed with multiple records", "steps": "1. Copy seed. 2. Reorder so record A frees, then record B writes through the same handle."},
+        {"name": "format-skeleton-grow", "when": "no seed", "steps": "1. Build two valid records. 2. Record A triggers free. 3. Record B does an update/write on the freed handle."}
+      ],
+      "candidate_families": [
+        {"name": "ordering-free-then-write", "priority": 1, "description": "Two valid records: first frees, second writes through same handle."},
+        {"name": "seed-reorder", "priority": 2, "description": "Copy seed, create free-then-write sequence."}
+      ]
     },
     "heap-double-free": {
       "label": "Heap-double-free", "sanitizer": "asan",
@@ -87,7 +189,17 @@
       "sink": "free() reached twice on the same pointer (duplicate cleanup / error after partial free).",
       "recipe": "Walk the free path twice: a duplicate id / repeated end-marker / an error AFTER a partial free that triggers the cleanup free again.",
       "byte_example": "obj{id=7} + END_MARKER + END_MARKER  -> cleanup frees p7, then the duplicate end re-runs cleanup -> free(p7) again. first free path must run cleanly.",
-      "fp_guard": "The structure must be valid enough that the first free path runs cleanly."
+      "fp_guard": "The structure must be valid enough that the first free path runs cleanly.",
+      "description_keywords": ["double-free", "heap-double-free", "double free", "freed twice", "attempting double-free"],
+      "construction_strategies": [
+        {"name": "seed-mutate-duplicate", "when": "in-repo seed exists", "steps": "1. Copy seed. 2. Duplicate the end-marker/cleanup-trigger so the free path runs twice."},
+        {"name": "format-skeleton-grow", "when": "no seed", "steps": "1. Build valid input with a duplicate end-of-record marker or repeated cleanup trigger."},
+        {"name": "error-after-free", "when": "error path triggers second free", "steps": "1. First record frees normally. 2. Second triggers an error that re-runs cleanup."}
+      ],
+      "candidate_families": [
+        {"name": "duplicate-cleanup-trigger", "priority": 1, "description": "Duplicate the end-marker/close/cleanup trigger so free() runs twice."},
+        {"name": "error-after-partial-free", "priority": 2, "description": "First operation frees; second triggers an error that re-runs cleanup."}
+      ]
     },
     "use-of-uninitialized-value": {
       "label": "Use-of-uninitialized-value", "sanitizer": "msan",
@@ -95,7 +207,18 @@
       "sink": "MSan: a value is READ before it was written, because an optional field was skipped.",
       "recipe": "OMIT an OPTIONAL subfield that is format-legal to omit, so a downstream value is read before any code path set it. The file stays well-formed.",
       "byte_example": "well-formed record but OMIT optional field F (legal to omit)  -> downstream reads F while it is never written -> MSan. file still parses end-to-end.",
-      "fp_guard": "Don't truncate the file or break required fields (that's a parse error in both builds). Only leave a legitimately-optional value unset."
+      "fp_guard": "Don't truncate the file or break required fields (that's a parse error in both builds). Only leave a legitimately-optional value unset.",
+      "description_keywords": ["use-of-uninitialized-value", "uninitialized value", "uninitialized memory", "MSan", "msan", "uninit"],
+      "construction_strategies": [
+        {"name": "seed-mutate-omit", "when": "in-repo seed exists", "steps": "1. Copy seed. 2. Identify the optional field. 3. Remove or zero-out ONLY that field while keeping the file structurally valid (adjust count/offset fields)."},
+        {"name": "format-skeleton-grow", "when": "no seed", "steps": "1. Build a complete valid file. 2. Include all required fields. 3. OMIT the one optional field."},
+        {"name": "conditional-branch-skip", "when": "field is set conditionally", "steps": "1. Build input that takes the code path that SKIPS setting the field. 2. Then hits the path that READS it."}
+      ],
+      "candidate_families": [
+        {"name": "seed-omit-optional", "priority": 1, "description": "Copy seed, remove/zero the one optional field. File stays well-formed."},
+        {"name": "skeleton-missing-optional", "priority": 2, "description": "Build valid file with all required fields, omit the optional one."},
+        {"name": "branch-skip", "priority": 3, "description": "Build input that takes the branch skipping initialization but still reaches the read."}
+      ]
     },
     "wild-address-read": {
       "label": "Wild-address READ", "sanitizer": "asan",
@@ -103,7 +226,17 @@
       "sink": "A read through a pointer computed from input (offset/base/index) that lands outside any valid mapping.",
       "recipe": "Set the single offset/pointer field so the computed address is just past a legitimate object (first invalid) — not a random huge value. Reach it with a valid prefix.",
       "byte_example": "<valid prefix> + [offset = object_end]  -> computed ptr = first byte past a real object; READ faults. NOT a garbage huge value.",
-      "fp_guard": "A garbage huge pointer faults in both builds; the bug is a specific off-by-one/missing-bound on ONE field."
+      "fp_guard": "A garbage huge pointer faults in both builds; the bug is a specific off-by-one/missing-bound on ONE field.",
+      "description_keywords": ["wild-address", "SEGV on unknown address", "unknown-crash", "segfault", "wild address read", "invalid memory access", "SEGV"],
+      "construction_strategies": [
+        {"name": "seed-mutate", "when": "in-repo seed exists", "steps": "1. Copy seed. 2. Set offset/pointer field = object_end (just past). 3. Keep rest valid."},
+        {"name": "format-skeleton-grow", "when": "no seed", "steps": "1. Build valid input reaching the computed pointer access. 2. Set offset = object_end."}
+      ],
+      "candidate_families": [
+        {"name": "seed-mutate-offset", "priority": 1, "description": "Copy seed, set offset/pointer field = object_end (first invalid)."},
+        {"name": "skeleton-offset-past-object", "priority": 2, "description": "Build valid input, set computed pointer just past a real object."},
+        {"name": "boundary-sweep", "priority": 3, "description": "Try offset = object_end-1, object_end, object_end+1."}
+      ]
     },
     "wild-address-write": {
       "label": "Wild-address WRITE", "sanitizer": "asan",
@@ -111,7 +244,16 @@
       "sink": "A write through an input-derived pointer that escapes valid memory.",
       "recipe": "One offset/index field set so the write target is the first invalid address past a real object.",
       "byte_example": "<valid prefix> + [offset = object_end]  -> WRITE target = first invalid address past a real object; minimum margin.",
-      "fp_guard": "Minimum margin; a wild huge address crashes both builds."
+      "fp_guard": "Minimum margin; a wild huge address crashes both builds.",
+      "description_keywords": ["wild-address write", "wild address write", "SEGV write", "invalid memory write"],
+      "construction_strategies": [
+        {"name": "seed-mutate", "when": "in-repo seed exists", "steps": "1. Copy seed. 2. Set offset/index = object_end."},
+        {"name": "format-skeleton-grow", "when": "no seed", "steps": "1. Build valid input. 2. Set write offset = first invalid address past real object."}
+      ],
+      "candidate_families": [
+        {"name": "seed-mutate-offset", "priority": 1, "description": "Copy seed, set write offset = object_end."},
+        {"name": "skeleton-offset-past-object", "priority": 2, "description": "Build valid input, set write pointer just past a real object."}
+      ]
     },
     "null-dereference-read": {
       "label": "Null-dereference READ", "sanitizer": "asan",
@@ -119,7 +261,18 @@
       "sink": "A dereference with no NULL check after a failing alloc/lookup/parse returns NULL.",
       "recipe": "Drive a lookup/alloc/parse to LEGITIMATELY return NULL (e.g., a missing optional sub-object), then a valid path dereferences it without checking.",
       "byte_example": "object{ child = <omitted optional> }  -> lookup(child) returns NULL legitimately; valid path does obj->child->field with no NULL check -> deref 0x0.",
-      "fp_guard": "The NULL must come from a real, valid-input path — not from a corrupt file that fails everywhere."
+      "fp_guard": "The NULL must come from a real, valid-input path — not from a corrupt file that fails everywhere.",
+      "description_keywords": ["null-dereference", "null pointer", "NULL dereference", "SEGV on unknown address 0x000000000000", "nullptr", "null deref"],
+      "construction_strategies": [
+        {"name": "seed-mutate-omit-child", "when": "in-repo seed exists", "steps": "1. Copy seed. 2. Remove or nullify the optional sub-object/child. 3. Code dereferences NULL."},
+        {"name": "format-skeleton-grow", "when": "no seed", "steps": "1. Build valid file with parent object. 2. OMIT the optional child. 3. Code dereferences NULL."},
+        {"name": "lookup-miss", "when": "NULL from lookup miss", "steps": "1. Build input referencing a non-existent id/key. 2. Lookup returns NULL. 3. Code dereferences."}
+      ],
+      "candidate_families": [
+        {"name": "seed-omit-child", "priority": 1, "description": "Copy seed, omit the optional child that the code dereferences without NULL check."},
+        {"name": "skeleton-missing-child", "priority": 2, "description": "Build valid parent object, omit the optional child."},
+        {"name": "lookup-miss-id", "priority": 3, "description": "Reference a non-existent id/key so lookup returns NULL."}
+      ]
     },
     "index-out-of-bounds": {
       "label": "Index-out-of-bounds", "sanitizer": "ubsan",
@@ -127,7 +280,17 @@
       "sink": "UBSan array-bounds: indexing a fixed-bound array past its declared bound.",
       "recipe": "Index field = declared_bound (first out of range). Valid prefix to the access.",
       "byte_example": "<valid prefix> + [index=DECLARED_BOUND]  -> UBSan array-bounds, exactly one past (valid 0..BOUND-1).",
-      "fp_guard": "One past the bound; not a huge index."
+      "fp_guard": "One past the bound; not a huge index.",
+      "description_keywords": ["index-out-of-bounds", "index out of bounds", "array bounds", "UBSan", "ubsan", "array index"],
+      "construction_strategies": [
+        {"name": "seed-mutate", "when": "in-repo seed exists", "steps": "1. Copy seed. 2. Set index = DECLARED_BOUND. 3. Keep rest valid."},
+        {"name": "format-skeleton-grow", "when": "no seed", "steps": "1. Build valid input reaching the array access. 2. Set index = declared bound."}
+      ],
+      "candidate_families": [
+        {"name": "seed-mutate-index", "priority": 1, "description": "Copy seed, set index = declared_bound."},
+        {"name": "skeleton-index-bound", "priority": 2, "description": "Build valid input, index = declared_bound."},
+        {"name": "boundary-probe", "priority": 3, "description": "Try index = bound-1, bound, bound+1."}
+      ]
     },
     "negative-size-param": {
       "label": "Negative-size-param", "sanitizer": "asan",
@@ -135,7 +298,17 @@
       "sink": "malloc/memcpy/memset called with a size that is negative when signed (wraps huge unsigned).",
       "recipe": "A signed length/count field = -1 (smallest negative) so the size computation passes a negative/huge value to the allocator or copy.",
       "byte_example": "<valid prefix> + [signed_len = -1 (0xFF..FF)]  -> size computation -> negative/huge to malloc/memcpy. use -1, NOT an arbitrary huge positive.",
-      "fp_guard": "Use -1, not an arbitrary huge positive (OOM in both builds)."
+      "fp_guard": "Use -1, not an arbitrary huge positive (OOM in both builds).",
+      "description_keywords": ["negative-size-param", "negative size", "negative length", "integer wrap", "size underflow"],
+      "construction_strategies": [
+        {"name": "seed-mutate", "when": "in-repo seed exists", "steps": "1. Copy seed. 2. Set signed length/count = -1 (0xFF..FF for the field width)."},
+        {"name": "format-skeleton-grow", "when": "no seed", "steps": "1. Build valid file. 2. Set the signed length field = -1."}
+      ],
+      "candidate_families": [
+        {"name": "seed-mutate-negative-one", "priority": 1, "description": "Copy seed, set signed length = -1 (0xFF..FF)."},
+        {"name": "skeleton-negative-size", "priority": 2, "description": "Build valid input, signed length field = -1."},
+        {"name": "width-probe", "priority": 3, "description": "Try -1 in int8 (0xFF), int16 (0xFFFF), int32 (0xFFFFFFFF) to match field width."}
+      ]
     },
     "bad-cast": {
       "label": "Bad-cast", "sanitizer": "ubsan",
@@ -143,7 +316,18 @@
       "sink": "UBSan vptr / a downcast to the wrong C++ type (type confusion).",
       "recipe": "A valid type-A object with its type tag/discriminant set to B, so a B-typed cast/vtable use runs on an A object.",
       "byte_example": "object_A{ ...valid A fields..., [type_tag = B] }  -> code casts/vtable-calls it as B on an A layout. only the tag is wrong.",
-      "fp_guard": "Object must be otherwise valid; only the type tag is wrong."
+      "fp_guard": "Object must be otherwise valid; only the type tag is wrong.",
+      "description_keywords": ["bad-cast", "bad cast", "type confusion", "vptr", "downcast", "dynamic_cast", "UBSan vptr"],
+      "construction_strategies": [
+        {"name": "seed-mutate-tag", "when": "in-repo seed exists", "steps": "1. Copy seed. 2. Change the type tag/discriminant to a DIFFERENT valid type. 3. Keep all other fields valid."},
+        {"name": "format-skeleton-grow", "when": "no seed", "steps": "1. Build a valid type-A object. 2. Set type_tag = B (another real type). 3. Code casts to B on A layout."},
+        {"name": "enum-swap", "when": "type tag is an enum/opcode", "steps": "1. Swap the type enum to a different valid value selecting a handler with different expected layout."}
+      ],
+      "candidate_families": [
+        {"name": "seed-tag-swap", "priority": 1, "description": "Copy seed, change type tag to a different valid type."},
+        {"name": "skeleton-type-mismatch", "priority": 2, "description": "Build valid type-A object, set tag = B."},
+        {"name": "enum-sweep", "priority": 3, "description": "Try each valid type tag value to find one triggering the mismatch."}
+      ]
     },
     "bad-free": {
       "label": "Bad-free", "sanitizer": "asan",
@@ -151,7 +335,16 @@
       "sink": "free() of a pointer that wasn't heap-allocated (stack/global/interior pointer).",
       "recipe": "Drive the branch that frees a non-heap or interior pointer (e.g., a flag selecting a stack-buffer path into a shared cleanup that frees).",
       "byte_example": "[selector = stack/inline path] + <valid rest>  -> shared cleanup free()s a non-heap/interior pointer. only the selector differs from the heap path.",
-      "fp_guard": "Reach the branch with valid structure; only the branch selector differs."
+      "fp_guard": "Reach the branch with valid structure; only the branch selector differs.",
+      "description_keywords": ["bad-free", "invalid-free", "invalid free", "attempting free on address which was not malloc", "free non-heap"],
+      "construction_strategies": [
+        {"name": "seed-mutate-selector", "when": "in-repo seed exists", "steps": "1. Copy seed. 2. Set the flag/selector to the non-heap path. 3. Shared cleanup calls free() on non-heap pointer."},
+        {"name": "format-skeleton-grow", "when": "no seed", "steps": "1. Build valid input. 2. Set branch selector to take the non-heap path."}
+      ],
+      "candidate_families": [
+        {"name": "seed-selector-flip", "priority": 1, "description": "Copy seed, flip the selector flag to the non-heap path."},
+        {"name": "skeleton-non-heap-path", "priority": 2, "description": "Build valid input taking the stack/inline allocation path to shared cleanup."}
+      ]
     },
     "use-after-poison-read": {
       "label": "Use-after-poison READ", "sanitizer": "asan",
@@ -159,7 +352,16 @@
       "sink": "Read of an ASan-poisoned region (custom redzone / container annotation).",
       "recipe": "Index/offset just past the live (un-poisoned) elements of a manually-poisoned buffer.",
       "byte_example": "<valid prefix> + [index = live_count]  -> first poisoned slot past the live region; READ. one past only.",
-      "fp_guard": "One past the live region only."
+      "fp_guard": "One past the live region only.",
+      "description_keywords": ["use-after-poison", "use after poison read", "poisoned memory read", "asan poison"],
+      "construction_strategies": [
+        {"name": "seed-mutate", "when": "in-repo seed exists", "steps": "1. Copy seed. 2. Set index/offset = live_count (first poisoned slot)."},
+        {"name": "format-skeleton-grow", "when": "no seed", "steps": "1. Build valid input. 2. Set index = live element count."}
+      ],
+      "candidate_families": [
+        {"name": "seed-mutate-index", "priority": 1, "description": "Copy seed, set index = live_count (first poisoned)."},
+        {"name": "skeleton-past-live", "priority": 2, "description": "Build valid input, index = live element count."}
+      ]
     },
     "use-after-poison-write": {
       "label": "Use-after-poison WRITE", "sanitizer": "asan",
@@ -167,7 +369,16 @@
       "sink": "Write into an ASan-poisoned region.",
       "recipe": "Write index just past the live elements of the poisoned buffer.",
       "byte_example": "<valid prefix> + [write_index = live_count]  -> WRITE into the first poisoned slot past live; minimum margin.",
-      "fp_guard": "Minimum margin."
+      "fp_guard": "Minimum margin.",
+      "description_keywords": ["use-after-poison write", "poisoned memory write", "asan poison write"],
+      "construction_strategies": [
+        {"name": "seed-mutate", "when": "in-repo seed exists", "steps": "1. Copy seed. 2. Set write_index = live_count."},
+        {"name": "format-skeleton-grow", "when": "no seed", "steps": "1. Build valid input. 2. Set write index = live_count."}
+      ],
+      "candidate_families": [
+        {"name": "seed-mutate-index", "priority": 1, "description": "Copy seed, set write index = live_count."},
+        {"name": "skeleton-past-live", "priority": 2, "description": "Build valid input, write index = live element count."}
+      ]
     },
     "stack-use-after-return-read": {
       "label": "Stack-use-after-return READ", "sanitizer": "asan",
@@ -175,7 +386,16 @@
       "sink": "A read through a pointer to a local that outlived its function (returned/stored).",
       "recipe": "A path that stashes the address of a local (into a struct/global), then a later VALID path reads it after the function returned.",
       "byte_example": "step_1{ stash &local into a struct/global } ; step_2{ valid -> READ that pointer }  -> local already returned. lifetime bug, not malformed bytes.",
-      "fp_guard": "Both paths valid; the bug is the lifetime, not malformed bytes."
+      "fp_guard": "Both paths valid; the bug is the lifetime, not malformed bytes.",
+      "description_keywords": ["stack-use-after-return", "use after return", "returned local", "stack lifetime"],
+      "construction_strategies": [
+        {"name": "seed-mutate-ordering", "when": "in-repo seed exists", "steps": "1. Copy seed. 2. Ensure input triggers: (a) function stashes &local, (b) function returns, (c) later operation reads through stored pointer."},
+        {"name": "format-skeleton-grow", "when": "no seed", "steps": "1. Build input with two operations. 2. First triggers function storing &local. 3. Second reads through pointer after function returned."}
+      ],
+      "candidate_families": [
+        {"name": "ordering-stash-then-read", "priority": 1, "description": "Two valid operations: first stores &local, function returns, second reads through stored pointer."},
+        {"name": "seed-trigger-sequence", "priority": 2, "description": "Copy seed, ensure it triggers the store-return-read sequence."}
+      ]
     },
     "stack-use-after-scope-read": {
       "label": "Stack-use-after-scope READ", "sanitizer": "asan",
@@ -183,7 +403,16 @@
       "sink": "A read of a local after its lexical scope (block) ended.",
       "recipe": "A branch that takes the address of a block-scoped local, leaves the block, then a valid path reuses that address.",
       "byte_example": "[branch flag = take &block_local] -> leave the {block} -> valid path READs that address  -> scope already ended. control-flow only, input stays valid.",
-      "fp_guard": "Trigger via valid control flow; don't corrupt the input."
+      "fp_guard": "Trigger via valid control flow; don't corrupt the input.",
+      "description_keywords": ["stack-use-after-scope", "use after scope", "scope ended", "block-scoped local"],
+      "construction_strategies": [
+        {"name": "seed-mutate-branch", "when": "in-repo seed exists", "steps": "1. Copy seed. 2. Set flag/branch selector to trigger scope-exit-then-read path."},
+        {"name": "format-skeleton-grow", "when": "no seed", "steps": "1. Build valid input. 2. Set branch selector to trigger the scope-exit-then-read path."}
+      ],
+      "candidate_families": [
+        {"name": "seed-branch-select", "priority": 1, "description": "Copy seed, set branch flag to trigger scope-exit-then-read."},
+        {"name": "skeleton-scope-path", "priority": 2, "description": "Build valid input taking the branch that stores &block_local, exits scope, reads."}
+      ]
     },
     "memcpy-param-overlap": {
       "label": "Memcpy-param-overlap", "sanitizer": "asan",
@@ -191,7 +420,16 @@
       "sink": "memcpy() with src and dst regions that overlap.",
       "recipe": "Make a single offset/length field force src and dst into the SAME buffer with overlapping ranges (e.g., copy a region onto itself shifted by < length).",
       "byte_example": "[src_off=0] [dst_off=d] [len=L] in ONE buffer with d < L  -> memcpy ranges overlap. keep lengths in-bounds (the bug is overlap, not overflow).",
-      "fp_guard": "Keep lengths in-bounds — the bug is the overlap, not an overflow."
+      "fp_guard": "Keep lengths in-bounds — the bug is the overlap, not an overflow.",
+      "description_keywords": ["memcpy-param-overlap", "memcpy overlap", "overlapping memcpy", "memmove"],
+      "construction_strategies": [
+        {"name": "seed-mutate", "when": "in-repo seed exists", "steps": "1. Copy seed. 2. Set dst_off = src_off + (len - 1) so ranges overlap by 1 byte. 3. Keep lengths in-bounds."},
+        {"name": "format-skeleton-grow", "when": "no seed", "steps": "1. Build valid input reaching the memcpy. 2. Set offsets so src and dst overlap."}
+      ],
+      "candidate_families": [
+        {"name": "seed-overlap-offsets", "priority": 1, "description": "Copy seed, adjust src/dst offsets so they overlap within the same buffer."},
+        {"name": "skeleton-self-copy", "priority": 2, "description": "Build valid input, set up memcpy from buffer to itself with offset < length."}
+      ]
     },
     "container-overflow-read": {
       "label": "Container-overflow READ", "sanitizer": "asan",
@@ -199,7 +437,16 @@
       "sink": "std::vector/std::string element READ past size() but within capacity (ASan container annotations).",
       "recipe": "Index = size() (one past the live elements, still inside capacity).",
       "byte_example": "vector/string of size S (capacity > S) + [index = S]  -> READ one past size() but within capacity. exactly S, not past capacity.",
-      "fp_guard": "Exactly one past size(); not past capacity (different bug / both builds)."
+      "fp_guard": "Exactly one past size(); not past capacity (different bug / both builds).",
+      "description_keywords": ["container-overflow", "container overflow read", "vector overflow", "string overflow read"],
+      "construction_strategies": [
+        {"name": "seed-mutate", "when": "in-repo seed exists", "steps": "1. Copy seed. 2. Set access index = container.size(). 3. Keep rest valid."},
+        {"name": "format-skeleton-grow", "when": "no seed", "steps": "1. Build valid input creating a container of known size S. 2. Set access index = S."}
+      ],
+      "candidate_families": [
+        {"name": "seed-mutate-index", "priority": 1, "description": "Copy seed, set access index = container.size()."},
+        {"name": "skeleton-past-size", "priority": 2, "description": "Build valid input, access at index = size() (within capacity)."}
+      ]
     },
     "container-overflow-write": {
       "label": "Container-overflow WRITE", "sanitizer": "asan",
@@ -207,7 +454,16 @@
       "sink": "Write to a container element past size() but within capacity.",
       "recipe": "Write index = size().",
       "byte_example": "container size S (capacity > S) + [write_index = S]  -> WRITE one past size(), within capacity. one past only.",
-      "fp_guard": "One past size() only."
+      "fp_guard": "One past size() only.",
+      "description_keywords": ["container-overflow write", "container overflow write", "vector overflow write", "string overflow write"],
+      "construction_strategies": [
+        {"name": "seed-mutate", "when": "in-repo seed exists", "steps": "1. Copy seed. 2. Set write index = container.size()."},
+        {"name": "format-skeleton-grow", "when": "no seed", "steps": "1. Build valid input creating container of size S. 2. Set write index = S."}
+      ],
+      "candidate_families": [
+        {"name": "seed-mutate-index", "priority": 1, "description": "Copy seed, set write index = container.size()."},
+        {"name": "skeleton-past-size", "priority": 2, "description": "Build valid input, write at index = size()."}
+      ]
     },
     "dynamic-stack-buffer-overflow-write": {
       "label": "Dynamic-stack-buffer-overflow WRITE", "sanitizer": "asan",
@@ -215,7 +471,17 @@
       "sink": "Overflow of a variable-length array (VLA) on the stack sized from an input count.",
       "recipe": "Let `count` size the VLA, then write `count+1` elements (one past). Keep `count` itself honest/small.",
       "byte_example": "[count=N (small)] + <N+1 elements>  -> VLA sized N on the stack, write one past. keep count small (huge count = stack OOM in both builds).",
-      "fp_guard": "Don't make `count` huge (stack OOM in both builds); the write index exceeds it by one."
+      "fp_guard": "Don't make `count` huge (stack OOM in both builds); the write index exceeds it by one.",
+      "description_keywords": ["dynamic-stack-buffer-overflow", "VLA overflow", "variable-length array overflow", "dynamic stack overflow"],
+      "construction_strategies": [
+        {"name": "seed-mutate", "when": "in-repo seed exists", "steps": "1. Copy seed. 2. Keep count small. 3. Set the data to have count+1 elements."},
+        {"name": "format-skeleton-grow", "when": "no seed", "steps": "1. Build valid input. 2. Set count=N (small). 3. Provide N+1 elements."}
+      ],
+      "candidate_families": [
+        {"name": "seed-mutate-elements", "priority": 1, "description": "Copy seed, keep count=N, provide N+1 data elements."},
+        {"name": "skeleton-vla-overflow", "priority": 2, "description": "Build valid input, count=N (small), N+1 elements."},
+        {"name": "count-sweep", "priority": 3, "description": "Try small count values (2,4,8) with count+1 elements."}
+      ]
     },
     "incorrect-function-pointer-type": {
       "label": "Incorrect-function-pointer-type", "sanitizer": "ubsan",
@@ -223,7 +489,18 @@
       "sink": "UBSan/CFI: a call through a function pointer whose declared type mismatches the callee.",
       "recipe": "A tag/opcode field selecting a handler/callback whose signature differs from the dispatch site's function-pointer type.",
       "byte_example": "[opcode = H] selecting handler H whose signature != the dispatch fn-ptr type  -> call through mismatched fn-ptr. pick a REAL-but-mismatched id; rest of the record valid.",
-      "fp_guard": "Pick a real-but-mismatched handler id; keep the rest of the record valid."
+      "fp_guard": "Pick a real-but-mismatched handler id; keep the rest of the record valid.",
+      "description_keywords": ["incorrect-function-pointer-type", "function pointer type", "CFI", "cfi", "function pointer mismatch", "indirect call"],
+      "construction_strategies": [
+        {"name": "seed-mutate-opcode", "when": "in-repo seed exists", "steps": "1. Copy seed. 2. Change the opcode/tag to a DIFFERENT valid opcode with mismatched signature."},
+        {"name": "format-skeleton-grow", "when": "no seed", "steps": "1. Build valid input. 2. Set opcode to a real-but-mismatched handler id."},
+        {"name": "opcode-enumeration", "when": "handler table accessible", "steps": "1. Read the dispatch table. 2. Find handlers with different signatures. 3. Set opcode to the mismatched one."}
+      ],
+      "candidate_families": [
+        {"name": "seed-opcode-swap", "priority": 1, "description": "Copy seed, change opcode to a real-but-mismatched handler."},
+        {"name": "skeleton-handler-mismatch", "priority": 2, "description": "Build valid input, set opcode to select handler with wrong signature."},
+        {"name": "opcode-sweep", "priority": 3, "description": "Try valid opcodes to find one triggering CFI/type mismatch."}
+      ]
     }
   }
 }

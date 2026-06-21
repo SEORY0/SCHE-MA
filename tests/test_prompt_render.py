@@ -62,6 +62,27 @@ def test_generate_kickoff_is_backend_aware(tmp_path):
     assert "submit.sh" in cc.kickoff           # local: script
 
 
+def test_harness_convention_and_format_advice_injected(tmp_path):
+    settings, plan, meta, handle = _ctx(tmp_path)
+    meta = TaskMeta(task_id="t", project="binutils", input_format="elf")
+    prior = {"recon": {"harness": {"fuzzer_convention": "libfuzzer"},
+                       "vuln_classes": ["heap-buffer-overflow-read"]}}
+    req = build_request("generate", plan, meta, handle, prior, settings, "claude_api")
+    assert "harness_convention" in req.system_prompt
+    assert "format_template" in req.system_prompt
+    assert "ELF" in req.system_prompt
+
+
+def test_description_fallback_classification(tmp_path):
+    (tmp_path / "description.txt").write_text("heap-buffer-overflow in parse_chunk")
+    settings, plan, meta, handle = _ctx(tmp_path)
+    handle = SimpleNamespace(task_dir=tmp_path, masked_id=None, agent_id=None,
+                             checksum=None, server_url=None)
+    prior = {}
+    req = build_request("generate", plan, meta, handle, prior, settings, "claude_api")
+    assert "Heap-buffer-overflow READ" in req.system_prompt or "Heap-buffer-overflow WRITE" in req.system_prompt
+
+
 def test_global_knowledge_base_included_and_gated(tmp_path):
     settings, plan, meta, handle = _ctx(tmp_path)
     # full route (minimize_info=False) carries the global KB (P4)

@@ -7,6 +7,9 @@ targeted (better PoCs) and token-cheap (we don't ship all 28 every task).
 
 `classify_from_crash_type` maps a sanitizer-reported crash string (e.g. "Heap-buffer-overflow
 READ 1") to type ids, used by the level3 mechanical fast-path where the LLM recon is skipped.
+
+`classify_from_description` scans a description.txt for keyword matches — the Level-1 fallback
+when no sanitizer crash string is available and LLM recon returned empty vuln_classes.
 """
 from __future__ import annotations
 
@@ -75,6 +78,47 @@ def classify_from_crash_type(crash_type: str) -> list[str]:
     return out
 
 
+def classify_from_description(text: str) -> list[str]:
+    """Scan description.txt for keyword matches -> matching atomic type ids.
+
+    Level-1 fallback when no sanitizer crash string is available. Uses the
+    `description_keywords` field from each type entry. Returns all matching
+    type ids, deduplicated.
+    """
+    if not text:
+        return []
+    text_lower = text.lower()
+    out: list[str] = []
+    for tid, entry in load().items():
+        keywords = entry.get("description_keywords", [])
+        for kw in keywords:
+            if kw.lower() in text_lower:
+                if tid not in out:
+                    out.append(tid)
+                break
+    return out
+
+
+def _render_construction_strategies(entry: dict) -> str:
+    strategies = entry.get("construction_strategies", [])
+    if not strategies:
+        return ""
+    lines = ["- **Construction strategies** (try in order, pick the first whose precondition matches):"]
+    for s in strategies:
+        lines.append(f"  - **{s['name']}** (when: {s['when']}): {s['steps']}")
+    return "\n".join(lines)
+
+
+def _render_candidate_families(entry: dict) -> str:
+    families = entry.get("candidate_families", [])
+    if not families:
+        return ""
+    lines = ["- **Candidate families** (generate at least one candidate per applicable family):"]
+    for f in sorted(families, key=lambda x: x.get("priority", 99)):
+        lines.append(f"  - [{f['priority']}] **{f['name']}**: {f['description']}")
+    return "\n".join(lines)
+
+
 def retrieve(classes) -> str:
     """Render the Example(V_i) blocks for the given type ids (unknown ids ignored)."""
     lib = load()
@@ -95,12 +139,16 @@ def retrieve(classes) -> str:
             f"- byte_example (ILLUSTRATIVE shape — instantiate against THIS target's real "
             f"format, do NOT copy literally): {be}\n" if be else ""
         )
+        strat_block = _render_construction_strategies(e)
+        family_block = _render_candidate_families(e)
         blocks.append(
             f"\n### {e['label']} ({e['sanitizer']})\n"
             f"- sink: {e['sink']}\n"
             f"- Example(V_i): {e['recipe']}\n"
             f"{byte_line}"
-            f"- avoid (would crash the fix too → score 0): {e['fp_guard']}"
+            f"- avoid (would crash the fix too → score 0): {e['fp_guard']}\n"
+            f"{strat_block}\n"
+            f"{family_block}"
         )
     blocks.append("</atomic_vuln_examples>")
     return "\n".join(blocks)

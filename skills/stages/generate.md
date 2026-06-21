@@ -7,6 +7,8 @@
 {{prior_json}}
 - **Atomic vulnerability Example(V_i)** for the classified type(s) — these are the canonical minimum-margin, single-invariant recipes for your `vuln_classes`. Build the PoC from them and obey each FP guard:
 {{vuln_examples}}
+{{harness_convention_advice}}
+{{format_advice}}
 </task_context>
 
 <foreground_only>
@@ -27,6 +29,12 @@ Generic strategies that score 1:
 </critical_scoring_rule>
 
 <instructions>
+0. **Construction-first workflow (Level 1 — description.txt + repo only):**
+   - Step 0a: Read the harness entry point (from `harness_source` or prior recon). Identify: input mode (raw bytes vs file), min_size gate, magic byte check.
+   - Step 0b: Search for in-repo seed files (`find . -name '*.corpus' -o -name 'seed*' -o -name 'testdata' -o -name 'sample*' -o -name 'example*' 2>/dev/null | head -20`). If found, use seed-mutate strategy FIRST.
+   - Step 0c: Read the `<harness_convention>` and `<format_template>` blocks above. They tell you the EXACT PoC shape and header structure. Fill all non-violation fields with valid defaults from the template.
+   - Step 0d: Pick the highest-priority construction strategy from the atomic vuln recipe's `construction_strategies` list whose precondition matches. Build the first candidate.
+   - Step 0e: Submit → if no_crash, diagnose (did you REACH the sink? check trace). If wrong crash type → discard, try next candidate family.
 1. **At level3, the prior recon carries `patch_intel` and `error_intel` — ground truth, not guesses.** Lead with these:
    - **Read the actual patch.diff in the task dir** (`cat patch.diff` — small, < 5KB). The minus lines (`-`) and the new conditions (`+`) tell you the exact missing invariant. Example: `-if (length > 0)` → `+if (length >= 5)` means the bug fires when `length ∈ {1,2,3,4}`. THAT specific range is what you must hit.
    - `error_intel.summary.fn` / `.file` / `.line` is the SINK. `error_intel.frames` is the call stack from the harness entry to the sink.

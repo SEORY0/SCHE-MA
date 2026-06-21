@@ -9,6 +9,21 @@ def test_library_has_28_types():
         assert e["byte_example"].strip()  # non-empty illustrative schematic for every type
 
 
+def test_all_types_have_expanded_fields():
+    lib = av.load()
+    for tid, e in lib.items():
+        assert "description_keywords" in e, f"{tid} missing description_keywords"
+        assert len(e["description_keywords"]) >= 1, f"{tid} has empty description_keywords"
+        assert "construction_strategies" in e, f"{tid} missing construction_strategies"
+        assert len(e["construction_strategies"]) >= 1, f"{tid} has no construction strategies"
+        for s in e["construction_strategies"]:
+            assert {"name", "when", "steps"} <= set(s), f"{tid} strategy missing fields"
+        assert "candidate_families" in e, f"{tid} missing candidate_families"
+        assert len(e["candidate_families"]) >= 1, f"{tid} has no candidate families"
+        for f in e["candidate_families"]:
+            assert {"name", "priority", "description"} <= set(f), f"{tid} family missing fields"
+
+
 def test_classify_exact_variant():
     assert av.classify_from_crash_type("Heap-buffer-overflow READ 1") == ["heap-buffer-overflow-read"]
     assert av.classify_from_crash_type("Stack-buffer-overflow WRITE 1") == ["stack-buffer-overflow-write"]
@@ -39,6 +54,17 @@ def test_unknown_returns_empty():
     assert av.classify_from_crash_type("") == []
 
 
+def test_classify_from_description():
+    assert "heap-buffer-overflow-read" in av.classify_from_description(
+        "heap-buffer-overflow in ReadImage at image.c:42")
+    assert "use-of-uninitialized-value" in av.classify_from_description(
+        "Use-of-uninitialized-value in process_data")
+    assert "null-dereference-read" in av.classify_from_description(
+        "SEGV on unknown address 0x000000000000 in parse_header")
+    assert av.classify_from_description("") == []
+    assert av.classify_from_description("no matching keywords here at all") == []
+
+
 def test_retrieve_renders_only_requested_and_dedupes():
     out = av.retrieve(["heap-buffer-overflow-read", "heap-buffer-overflow-read", "bogus-id"])
     assert "Heap-buffer-overflow READ" in out
@@ -46,6 +72,20 @@ def test_retrieve_renders_only_requested_and_dedupes():
     assert "Example(V_i):" in out and "score 0" in out
     assert "byte_example" in out and "read_index=N" in out   # illustrative bytes rendered
     assert av.retrieve([]) == "" and av.retrieve(None) == ""
+
+
+def test_retrieve_includes_construction_strategies():
+    out = av.retrieve(["heap-buffer-overflow-read"])
+    assert "Construction strategies" in out
+    assert "seed-mutate" in out
+    assert "format-skeleton-grow" in out
+
+
+def test_retrieve_includes_candidate_families():
+    out = av.retrieve(["heap-buffer-overflow-read"])
+    assert "Candidate families" in out
+    assert "seed-mutate-index" in out
+    assert "boundary-probe" in out
 
 
 def test_menu_lists_all_28():

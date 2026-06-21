@@ -1,0 +1,227 @@
+{
+  "_about": "Input format templates — GLOBAL, task-agnostic structural knowledge for the top 15 format families covering ~60% of CyberGym tasks. Each entry describes the minimum valid file structure the agent needs to construct before violating a single field at the sink. Level-1 compliant: no CVE data, no patch info, just format specifications any developer knows.",
+  "formats": {
+    "elf": {
+      "label": "ELF (Executable and Linkable Format)",
+      "projects": ["binutils", "elfutils", "radare2"],
+      "magic": "7f454c46",
+      "header_min_bytes": 64,
+      "structure": "ELF header (64B for 64-bit) → program header table → section header table → sections. e_ident[0..3] = magic. e_ident[4] = class (1=32-bit, 2=64-bit). e_ident[5] = endianness (1=LE, 2=BE).",
+      "key_fields": {
+        "e_type": "offset 16, 2B — 1=relocatable, 2=executable, 3=shared, 4=core",
+        "e_machine": "offset 18, 2B — 0x3E=x86-64, 0x03=x86, 0xB7=AArch64",
+        "e_phoff": "offset 32, 8B (64-bit) — program header table offset",
+        "e_shoff": "offset 40, 8B (64-bit) — section header table offset",
+        "e_phnum": "offset 56, 2B — number of program headers",
+        "e_shnum": "offset 60, 2B — number of section headers",
+        "e_shstrndx": "offset 62, 2B — section name string table index"
+      },
+      "seed_paths": ["test/binutils-*", "ld/testsuite", "gas/testsuite", "binutils/testsuite", "test/**/*.o", "test/**/*.elf"]
+    },
+    "postscript": {
+      "label": "PostScript / PDF (Ghostscript)",
+      "projects": ["ghostscript", "mupdf"],
+      "magic": "25215053 (%!PS) or 25504446 (%PDF)",
+      "header_min_bytes": 32,
+      "structure": "PostScript: %!PS-Adobe-N.M header → operators/procedures → showpage. PDF: %PDF-1.X header → body objects → xref table → trailer → %%EOF.",
+      "key_fields": {
+        "header_line": "%!PS-Adobe-3.0 or %PDF-1.7",
+        "ps_operators": "moveto, lineto, curveto, fill, stroke, show, image, colorimage",
+        "pdf_obj": "N 0 obj ... endobj (indirect object)",
+        "pdf_stream": "stream\\n<data>\\nendstream (compressed or raw content)",
+        "pdf_xref": "xref\\n0 N\\n<entries>\\ntrailer\\n<<...>>\\nstartxref\\nOFFSET\\n%%EOF"
+      },
+      "seed_paths": ["examples/**/*.ps", "test/**/*.ps", "test/**/*.pdf", "Resource/**"]
+    },
+    "media-container": {
+      "label": "Media containers (AVI/MKV/FLV/WAV/OGG)",
+      "projects": ["ffmpeg", "libav"],
+      "magic": "varies: 52494646 (RIFF/AVI/WAV), 1a45dfa3 (MKV/WebM), 464c5601 (FLV), 4f676753 (OGG)",
+      "header_min_bytes": 12,
+      "structure": "Container-specific: AVI = RIFF + LIST + chunks. MKV = EBML header + Segment + Clusters. FLV = header(9B) + tags. OGG = pages with sync pattern.",
+      "key_fields": {
+        "avi_riff": "RIFF(4B) + size(4B LE) + AVI (4B) — then LIST chunks",
+        "mkv_ebml": "EBML element ID 0x1A45DFA3 + size + EBML version/doctype elements",
+        "flv_header": "FLV(3B) + version(1B) + flags(1B: bit4=audio, bit0=video) + data_offset(4B BE, typically 9)",
+        "ogg_page": "OggS(4B) + version(1B=0) + type(1B) + granule(8B) + serial(4B) + page_seq(4B) + crc(4B) + segments(1B) + segment_table"
+      },
+      "seed_paths": ["tests/ref/**", "tests/data/**", "fate-suite/**", "test/**/*.avi", "test/**/*.mkv"]
+    },
+    "asn1-smartcard": {
+      "label": "ASN.1 / Smart card (PKCS#15, ISO 7816)",
+      "projects": ["opensc", "libtasn1"],
+      "magic": "none (TLV-encoded, starts with a tag byte)",
+      "header_min_bytes": 2,
+      "structure": "TLV (Tag-Length-Value) encoding. Tag: 1-3 bytes (class + constructed + number). Length: 1-5 bytes (short form <128, long form 0x8N + N bytes). Value: Length bytes of content. Nested for SEQUENCE/SET.",
+      "key_fields": {
+        "tag_byte": "bits 7-6: class (00=universal, 01=application, 10=context, 11=private). bit 5: constructed(1)/primitive(0). bits 4-0: tag number (0x1F = long form follows)",
+        "length": "byte < 0x80: short form (length = byte). byte = 0x80: indefinite. byte = 0x81-0x84: long form, next 1-4 bytes = length",
+        "common_tags": "0x30=SEQUENCE, 0x31=SET, 0x02=INTEGER, 0x04=OCTET STRING, 0x06=OID, 0x0C=UTF8String, 0xA0-0xAF=context-specific"
+      },
+      "seed_paths": ["src/tests/**", "test/**/*.der", "test/**/*.pem", "test/**/*.p15"]
+    },
+    "pcap-network": {
+      "label": "PCAP / Network protocols",
+      "projects": ["wireshark", "tcpdump", "libpcap"],
+      "magic": "a1b2c3d4 (PCAP LE) or d4c3b2a1 (PCAP BE) or 0a0d0d0a (PCAPNG)",
+      "header_min_bytes": 24,
+      "structure": "PCAP: global header (24B) → packet records (header 16B + data). PCAPNG: Section Header Block → Interface Description Block → Enhanced Packet Blocks.",
+      "key_fields": {
+        "pcap_global": "magic(4B) + version_major(2B=2) + version_minor(2B=4) + thiszone(4B=0) + sigfigs(4B=0) + snaplen(4B) + network(4B: 1=Ethernet, 101=raw IP)",
+        "pcap_packet": "ts_sec(4B) + ts_usec(4B) + incl_len(4B) + orig_len(4B) + data(incl_len bytes)",
+        "pcapng_shb": "block_type=0x0A0D0D0A + block_len(4B) + BOM(4B=0x1A2B3C4D) + version(2+2B) + section_length(8B=-1) + options + block_len(4B)",
+        "ethernet": "dst_mac(6B) + src_mac(6B) + ethertype(2B: 0x0800=IPv4, 0x86DD=IPv6)"
+      },
+      "seed_paths": ["test/captures/**", "test/**/*.pcap", "test/**/*.pcapng", "tools/test/**"]
+    },
+    "raw-image": {
+      "label": "Camera RAW images (CR2, NEF, ARW, DNG)",
+      "projects": ["librawspeed", "rawspeed", "libraw", "darktable"],
+      "magic": "varies: TIFF-based (49492a00 LE or 4d4d002a BE), DNG has TIFF magic + DNG tags",
+      "header_min_bytes": 8,
+      "structure": "TIFF IFD chain: header (8B: byte_order + magic 42 + IFD0_offset) → IFD0 (count + entries + next_IFD_offset) → SubIFDs → strip/tile data. RAW-specific tags in maker notes.",
+      "key_fields": {
+        "byte_order": "offset 0, 2B — 0x4949=little-endian, 0x4D4D=big-endian",
+        "tiff_magic": "offset 2, 2B — always 42 (0x002A)",
+        "ifd0_offset": "offset 4, 4B — offset to first IFD (usually 8)",
+        "ifd_entry": "tag(2B) + type(2B) + count(4B) + value_or_offset(4B)",
+        "common_tags": "256=ImageWidth, 257=ImageLength, 258=BitsPerSample, 273=StripOffsets, 279=StripByteCounts, 34665=ExifIFD"
+      },
+      "seed_paths": ["test/**/*.cr2", "test/**/*.nef", "test/**/*.dng", "test/**/*.arw", "test/data/**", "fuzz/corpora/**"]
+    },
+    "ruby-source": {
+      "label": "Ruby source / mruby bytecode",
+      "projects": ["mruby", "cruby"],
+      "magic": "none for source; 5249544500 (RITE) for mruby bytecode (.mrb)",
+      "header_min_bytes": 1,
+      "structure": "Source: UTF-8 text, Ruby syntax. Bytecode (RITE): RITE header (22B) → IREP section → LINE section → END section.",
+      "key_fields": {
+        "rite_magic": "RITE\\0 (5 bytes)",
+        "rite_version": "4 bytes after magic (e.g., '0300')",
+        "rite_crc": "2 bytes, CRC of the binary section",
+        "rite_size": "4 bytes, total binary size",
+        "irep_section": "IREP tag(4B) + size(4B) + version(4B) + instruction records"
+      },
+      "seed_paths": ["test/**/*.rb", "mrbtest/**/*.rb", "test/**/*.mrb", "benchmark/**/*.rb"]
+    },
+    "xml": {
+      "label": "XML / HTML / SVG",
+      "projects": ["libxml2", "libxslt", "xerces"],
+      "magic": "3c3f786d6c (<?xml) for XML declaration, 3c21444f43 (<!DOC) for DOCTYPE, or bare <root>",
+      "header_min_bytes": 1,
+      "structure": "<?xml version=\"1.0\"?> (optional) → <!DOCTYPE ...> (optional) → root element → child elements. Well-formed: every open tag has a close tag, attributes quoted, entities escaped.",
+      "key_fields": {
+        "xml_decl": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>",
+        "doctype": "<!DOCTYPE root [<!ENTITY ...>]> (external/internal entity declarations)",
+        "namespace": "xmlns:prefix=\"URI\" on elements",
+        "cdata": "<![CDATA[...]]> for raw content",
+        "entity_ref": "&name; or &#NNN; or &#xHH;"
+      },
+      "seed_paths": ["test/**/*.xml", "test/**/*.html", "test/**/*.svg", "test/**/*.xsl", "result/**/*.xml"]
+    },
+    "font": {
+      "label": "TrueType / OpenType fonts (TTF/OTF/WOFF)",
+      "projects": ["freetype2", "freetype", "harfbuzz", "fontconfig"],
+      "magic": "00010000 (TTF) or 4f54544f (OTTO/OTF) or 774f4646 (wOFF) or 774f4632 (wOF2)",
+      "header_min_bytes": 12,
+      "structure": "Offset table (12B): sfVersion + numTables + searchRange + entrySelector + rangeShift → table directory (16B per table: tag + checksum + offset + length) → table data.",
+      "key_fields": {
+        "sfVersion": "offset 0, 4B — 0x00010000 for TTF, 'OTTO' for CFF-based OTF",
+        "numTables": "offset 4, 2B BE — number of tables",
+        "table_record": "tag(4B, e.g. 'cmap','glyf','head') + checksum(4B) + offset(4B) + length(4B)",
+        "required_tables": "cmap (char mapping), head (font header), hhea (horizontal header), hmtx (horizontal metrics), maxp (max profile), name (naming), OS/2 (OS metrics), post (PostScript)"
+      },
+      "seed_paths": ["test/**/*.ttf", "test/**/*.otf", "test/fonts/**", "perf/**/*.ttf", "test/**/*.woff"]
+    },
+    "pdf": {
+      "label": "PDF (Portable Document Format)",
+      "projects": ["mupdf", "poppler", "pdfium", "xpdf"],
+      "magic": "25504446 (%PDF)",
+      "header_min_bytes": 15,
+      "structure": "%PDF-1.X header → body (indirect objects: N 0 obj...endobj) → cross-reference table (xref 0 N\\n<entries>) → trailer (trailer<<...>> startxref OFFSET %%EOF). Streams: stream\\n<data>\\nendstream.",
+      "key_fields": {
+        "header": "%PDF-1.7 (version 1.0-2.0)",
+        "indirect_obj": "objnum gennum obj\\n<< /Type /... >>\\nendobj",
+        "stream_obj": "objnum gennum obj\\n<< /Length N >>\\nstream\\n<N bytes>\\nendstream\\nendobj",
+        "xref": "xref\\n0 N\\nOOOOOOOOOO GGGGG f/n \\r\\n (10-digit offset, 5-digit generation, f=free/n=in-use)",
+        "trailer": "trailer\\n<< /Size N /Root R 0 R >>\\nstartxref\\nOFFSET\\n%%EOF",
+        "catalog": "/Type /Catalog /Pages P 0 R",
+        "page": "/Type /Page /Parent P 0 R /MediaBox [0 0 W H] /Contents C 0 R"
+      },
+      "seed_paths": ["test/**/*.pdf", "docs/**/*.pdf", "resources/**/*.pdf"]
+    },
+    "network-dpi": {
+      "label": "Network DPI payloads",
+      "projects": ["ndpi", "suricata", "snort"],
+      "magic": "none (protocol-specific headers)",
+      "header_min_bytes": 1,
+      "structure": "Protocol-specific: HTTP = request line + headers + body. DNS = header(12B) + questions + answers. TLS = record(5B) + handshake. The harness typically wraps raw protocol data in a PCAP or passes it directly.",
+      "key_fields": {
+        "http": "METHOD /path HTTP/1.1\\r\\nHost: ...\\r\\n\\r\\n",
+        "dns_header": "id(2B) + flags(2B) + qdcount(2B) + ancount(2B) + nscount(2B) + arcount(2B)",
+        "tls_record": "content_type(1B: 22=handshake) + version(2B: 0x0303=TLS1.2) + length(2B) + fragment",
+        "tls_handshake": "msg_type(1B: 1=ClientHello) + length(3B) + version(2B) + random(32B) + session_id_len(1B) + ..."
+      },
+      "seed_paths": ["test/**/*.pcap", "fuzz/corpora/**", "tests/**"]
+    },
+    "dwg": {
+      "label": "DWG / DXF (AutoCAD)",
+      "projects": ["libredwg", "libdxf"],
+      "magic": "41433130 (AC10) for DWG; '0\\nSECTION' for DXF (text)",
+      "header_min_bytes": 6,
+      "structure": "DWG: version string (6B, e.g. 'AC1032') → header section → class section → object map → objects → R2004+ uses compressed sections. DXF: ASCII text with SECTION/ENDSEC pairs (HEADER, CLASSES, TABLES, BLOCKS, ENTITIES, OBJECTS).",
+      "key_fields": {
+        "dwg_version": "AC1015=R2000, AC1018=R2004, AC1021=R2007, AC1024=R2010, AC1027=R2013, AC1032=R2018",
+        "dxf_structure": "0\\nSECTION\\n2\\nHEADER\\n...\\n0\\nENDSEC (group code + value pairs)",
+        "dwg_header_vars": "INSBASE, EXTMIN, EXTMAX, LIMMIN, LIMMAX, etc.",
+        "entity_types": "LINE, CIRCLE, ARC, TEXT, INSERT, POLYLINE, LWPOLYLINE, DIMENSION"
+      },
+      "seed_paths": ["test/**/*.dwg", "test/**/*.dxf", "test/testcases/**", "examples/**"]
+    },
+    "raster-image": {
+      "label": "Raster images (TIFF/PNG/JPEG/GIF/BMP/WebP)",
+      "projects": ["graphicsmagick", "imagemagick", "libtiff", "libpng", "libjpeg-turbo", "openjpeg", "libwebp"],
+      "magic": "varies: 89504e47 (PNG), ffd8ff (JPEG), 47494638 (GIF), 424d (BMP), 49492a00/4d4d002a (TIFF), 52494646...57454250 (WebP RIFF)",
+      "header_min_bytes": 8,
+      "structure": "PNG: signature(8B) + IHDR chunk + data chunks (IDAT) + IEND. JPEG: SOI(FFD8) + markers (FFxx + length + data) + SOS + scan data + EOI(FFD9). TIFF: header(8B) + IFD chain. GIF: header(6B) + LSD(7B) + GCT + blocks. BMP: header(14B) + DIB header + pixel data.",
+      "key_fields": {
+        "png_ihdr": "width(4B BE) + height(4B BE) + bit_depth(1B) + color_type(1B) + compression(1B=0) + filter(1B=0) + interlace(1B)",
+        "png_chunk": "length(4B BE) + type(4B ASCII) + data(length B) + CRC(4B)",
+        "jpeg_sof": "FFCx marker: precision(1B) + height(2B BE) + width(2B BE) + components(1B) + component_specs",
+        "tiff_ifd": "count(2B) + entries(12B each: tag+type+count+value) + next_ifd_offset(4B)",
+        "bmp_header": "BM(2B) + file_size(4B) + reserved(4B) + pixel_offset(4B) + DIB_header_size(4B)"
+      },
+      "seed_paths": ["test/**/*.png", "test/**/*.jpg", "test/**/*.tiff", "test/**/*.gif", "test/**/*.bmp", "test/data/**", "fuzz/corpora/**"]
+    },
+    "mp4-isobmff": {
+      "label": "MP4 / ISOBMFF (ISO Base Media File Format)",
+      "projects": ["gpac", "libheif", "mp4v2"],
+      "magic": "varies by brand: 66747970 ('ftyp' box at offset 4); first 4 bytes = box size",
+      "header_min_bytes": 8,
+      "structure": "Sequence of boxes: size(4B BE) + type(4B ASCII) + data. Key boxes: ftyp (file type) → moov (movie metadata) → mdat (media data). moov contains mvhd + trak(s). Each trak has tkhd + mdia (mdhd + hdlr + minf + stbl).",
+      "key_fields": {
+        "box": "size(4B BE, 0=extends to EOF, 1=64-bit extended size follows) + type(4B ASCII)",
+        "ftyp": "major_brand(4B) + minor_version(4B) + compatible_brands(4B each)",
+        "mvhd": "version(1B) + flags(3B) + creation_time + modification_time + timescale(4B) + duration",
+        "tkhd": "version(1B) + flags(3B) + track_ID(4B) + duration + width(4B fixed-point) + height(4B)",
+        "stbl_tables": "stts (time-to-sample), stsc (sample-to-chunk), stsz (sample sizes), stco/co64 (chunk offsets)"
+      },
+      "seed_paths": ["test/**/*.mp4", "test/**/*.mov", "test/**/*.m4a", "media/**", "test/data/**"]
+    },
+    "dwarf-debug": {
+      "label": "DWARF debug info / Compression formats",
+      "projects": ["libdwarf", "c-blosc2", "blosc2", "zstd", "lz4"],
+      "magic": "DWARF: embedded in ELF .debug_* sections. Blosc2: 0x0210 (Blosc2 frame magic) or varies.",
+      "header_min_bytes": 4,
+      "structure": "DWARF: .debug_info (compilation units with DIE trees), .debug_abbrev (abbreviation tables), .debug_line (line number program), .debug_str (string table). Blosc2: header (meta + nchunks + frame sections) → compressed chunks.",
+      "key_fields": {
+        "dwarf_cu_header": "unit_length(4B) + version(2B: 4 or 5) + debug_abbrev_offset(4B) + address_size(1B: 4 or 8)",
+        "dwarf_die": "abbrev_code(ULEB128) + attribute_values (as specified by abbreviation)",
+        "dwarf_leb128": "variable-length encoding: 7 bits per byte, high bit = more bytes follow",
+        "blosc2_header": "magic(2B) + version(1B) + flags(1B) + typesize(4B) + nbytes(8B) + cbytes(8B) + blocksize(4B)",
+        "blosc2_chunk": "magic(1B) + flags(1B) + typesize(1B) + nbytes(4B) + blocksize(4B) + cbytes(4B) + data"
+      },
+      "seed_paths": ["test/**/*.o", "test/**/*.elf", "test/**/*.blosc2", "test/**/*.b2frame", "tests/**"]
+    }
+  }
+}

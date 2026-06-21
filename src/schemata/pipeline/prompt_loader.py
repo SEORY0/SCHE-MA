@@ -70,9 +70,11 @@ def build_request(
         description_txt = "(no description.txt)"
     # Atomic-vuln classification: recon/analyze pick `vuln_classes` from the type menu; generate
     # gets ONLY the matching Example(V_i) recipes (targeted + token-cheap vs shipping all 28).
-    from ..knowledge import atomic_vulns
+    from ..knowledge import atomic_vulns, format_knowledge
     vuln_classes = (prior_results.get("analyze", {}).get("vuln_classes")
                     or prior_results.get("recon", {}).get("vuln_classes") or [])
+    if not vuln_classes:
+        vuln_classes = atomic_vulns.classify_from_description(description_txt)
     # Stage 1 Recon no longer skeleton-navigates via a tree-sitter outline tool. Instead the
     # harness mechanically locates the fuzz entry point and we inject its FULL source (plus
     # error.txt when present) here, so the cheap model reads the actual crash-relevant code
@@ -81,6 +83,8 @@ def build_request(
     if stage == "recon":
         from .harness import recon_context
         harness_source = recon_context(handle.task_dir)
+    harness_convention = (prior_results.get("recon", {}).get("harness", {}).get("fuzzer_convention")
+                          or prior_results.get("analyze", {}).get("harness", {}).get("fuzzer_convention"))
     tokens = {
         "project": meta.project,
         "crash_type": meta.crash_type,
@@ -94,6 +98,8 @@ def build_request(
         "prior_json": json.dumps(prior_results, ensure_ascii=False, indent=2),
         "vuln_type_menu": atomic_vulns.menu(),            # used by recon/analyze (classification vocab)
         "vuln_examples": atomic_vulns.retrieve(vuln_classes),  # used by generate (matched recipes)
+        "harness_convention_advice": format_knowledge.harness_advice(harness_convention),
+        "format_advice": format_knowledge.format_advice(meta.input_format, meta.project),
     }
 
     parts = [_render(_read("shared/situational_context.md"), tokens)]

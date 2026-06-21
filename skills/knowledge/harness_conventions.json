@@ -1,0 +1,51 @@
+{
+  "_about": "Harness convention knowledge — HOW the fuzz target consumes input. The agent detects the convention in recon (harness.py), and the matching entry is injected into the generate prompt so the agent knows the PoC shape before it writes a single byte.",
+  "conventions": {
+    "libfuzzer": {
+      "detection_patterns": ["LLVMFuzzerTestOneInput", "extern \"C\" int LLVMFuzzerTestOneInput"],
+      "input_contract": "Raw bytes passed as (const uint8_t *data, size_t size). No file structure required unless the harness parses one internally.",
+      "poc_shape": "Raw byte blob. Write directly with python3 -c 'sys.stdout.buffer.write(...)'. Size >= any min_size gate in the harness (typically `if (size < N) return 0;`).",
+      "common_gates": [
+        "size < N return 0 (minimum size gate — PoC must be >= N bytes)",
+        "magic byte check at data[0..3]",
+        "early-return on zero-length"
+      ],
+      "fdp_patterns": {
+        "ConsumeIntegral<uint8_t>": "1 byte from front of buffer",
+        "ConsumeIntegral<uint16_t>": "2 bytes LE from front",
+        "ConsumeIntegral<uint32_t>": "4 bytes LE from front",
+        "ConsumeIntegral<uint64_t>": "8 bytes LE from front",
+        "ConsumeBool": "1 byte from BACK of buffer (0 = false, nonzero = true)",
+        "ConsumeEnum": "N bytes from front, mod enum_count",
+        "ConsumeBytes(N)": "N bytes from front",
+        "ConsumeRandomLengthString": "bytes up to next 0x00 or backslash from front",
+        "ConsumeRemainingBytes": "all remaining bytes from front",
+        "ConsumeProbability": "4 bytes from front, converted to float [0,1]",
+        "ConsumeFloatingPoint": "4 or 8 bytes from front"
+      }
+    },
+    "afl": {
+      "detection_patterns": ["__AFL_FUZZ_INIT", "__AFL_LOOP", "main(int argc", "main(int ac", "stdin", "read(0,", "read(STDIN_FILENO"],
+      "input_contract": "Structurally complete file read from stdin or a file path argument. The parser expects a VALID file (magic + header + at least one record/chunk). Truncated or magic-less input → immediate exit(0), not a crash.",
+      "poc_shape": "A complete file: magic bytes + valid header + at least one record/chunk. This is the #1 difference from libFuzzer — a minimal byte stub won't reach the parser's deep code paths. Build the full skeleton first, THEN violate the one field at the sink.",
+      "common_gates": [
+        "magic bytes at offset 0 (reject if wrong)",
+        "header size >= minimum (reject if truncated)",
+        "record/chunk count >= 1 (empty file → no-op exit)",
+        "CRC/checksum validation (some parsers; recompute after mutation)"
+      ],
+      "fdp_patterns": {}
+    },
+    "custom-main": {
+      "detection_patterns": ["int main(", "main(void)", "fopen(argv[", "FILE *f"],
+      "input_contract": "File path passed as argv[1] or read from a hardcoded path. Same as AFL: structurally complete file expected.",
+      "poc_shape": "Same as AFL — complete file with valid structure. The harness typically opens the file, reads it entirely, and passes to the parser. Truncated/empty → early exit, not crash.",
+      "common_gates": [
+        "file exists and is non-empty",
+        "magic bytes / file signature check",
+        "minimum file size"
+      ],
+      "fdp_patterns": {}
+    }
+  }
+}
