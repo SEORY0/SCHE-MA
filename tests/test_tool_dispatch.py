@@ -2,10 +2,10 @@
 import asyncio
 from pathlib import Path
 
-from schemata.config import load_settings
-from schemata.models import StageRequest, Verdict
 from schemata.backends.tools import permissions
 from schemata.backends.tools.dispatcher import Dispatcher
+from schemata.core.config import load_settings
+from schemata.core.models import StageRequest, Verdict
 
 
 def _req(cwd, *, stage="generate", tier="full", **kw):

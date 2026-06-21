@@ -10,10 +10,26 @@ import base64
 from pathlib import Path
 from uuid import uuid4
 
-from a2a.types import (DataPart, FilePart, FileWithBytes, Message, Part, Role,
-                       TaskArtifactUpdateEvent, TaskStatusUpdateEvent, TextPart)
+import pytest
 
-from schemata.a2a.executor import Executor
+pytest.importorskip("a2a")  # external a2a-sdk; removed from deps with arena retirement
+
+from a2a.types import (  # noqa: E402
+    DataPart,
+    FilePart,
+    FileWithBytes,
+    Message,
+    Part,
+    Role,
+    TaskArtifactUpdateEvent,
+    TaskStatusUpdateEvent,
+    TextPart,
+)
+
+from schemata.legacy.a2a.executor import Executor  # noqa: E402
+
+pytestmark = pytest.mark.skip(
+    reason="arena/a2a retired; moved to schemata.legacy (local CyberGym only)")
 
 
 class CollectEQ:

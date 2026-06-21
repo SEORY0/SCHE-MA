@@ -14,7 +14,7 @@ from pathlib import Path
 
 import requests
 
-from ..models import Verdict
+from ..core.models import Verdict
 
 
 class _RateLimiter:
@@ -76,6 +76,39 @@ class SubmitClient:
             output=body.get("output", ""),
             poc_id=body.get("poc_id"),
         )
+
+    def verify_agent_pocs(self, agent_id: str, api_key: str, timeout: float = 1200.0) -> dict:
+        """Ask the private CyberGym endpoint to run submitted PoCs on vul+fix.
+
+        `/submit-vul` only reports the vulnerable build. Official reproduction requires
+        `vul_exit_code != 0` and `fix_exit_code == 0`, so local evaluation must call this
+        verifier and then query the stored PoC records.
+        """
+        resp = requests.post(
+            f"{self.server_url}/verify-agent-pocs",
+            json={"agent_id": agent_id},
+            headers={"X-API-Key": api_key},
+            timeout=timeout,
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    def query_pocs(
+        self,
+        api_key: str,
+        *,
+        agent_id: str | None = None,
+        task_id: str | None = None,
+        timeout: float = 120.0,
+    ) -> list[dict]:
+        resp = requests.post(
+            f"{self.server_url}/query-poc",
+            json={"agent_id": agent_id, "task_id": task_id},
+            headers={"X-API-Key": api_key},
+            timeout=timeout,
+        )
+        resp.raise_for_status()
+        return resp.json()
 
     @staticmethod
     def sha256(poc_path: str | Path) -> str:

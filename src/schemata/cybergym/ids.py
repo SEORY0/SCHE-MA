@@ -4,8 +4,8 @@ from __future__ import annotations
 import json
 from functools import lru_cache
 
-from ..config import DATA_DIR
-from ..models import TaskMeta
+from ..core.config import DATA_DIR
+from ..core.models import TaskMeta
 
 TASKS_METADATA = DATA_DIR / "tasks_metadata.json"
 MASK_MAP = DATA_DIR / "mask_map.json"

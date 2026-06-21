@@ -49,6 +49,7 @@ tier = "full"
 max_iters = 5
 max_consecutive_nocrash = 3
 max_candidates = 50
+batch_submit_candidates = true
 
 [stages.discriminate]
 # Stage 4 — independent referee. Decides whether an achieved crash IS the described bug
@@ -85,6 +86,16 @@ sliding_window_turns = 0          # 0 = disabled
 max_output_tokens = 8000          # per-turn output cap (non-thinking stages)
 max_output_tokens_thinking = 16000 # per-turn cap when adaptive thinking is on (avoid mid-thought truncation)
 effort_hard = "high"              # output_config.effort for hard (opus/sonnet) thinking stages; never sent to Haiku
+
+[arena]
+# The arena green may attach patch.diff/repo-fix (level3), but we do NOT know whether the
+# leaderboard SCORES level1 or level3. level1 is the documented leaderboard level and the
+# ONLY path that runs the Haiku LLM recon (level3 replaces recon+analyze with a mechanical
+# patch.diff parse — which is why the arena showed zero Haiku usage). assume_level1 forces
+# EVERY arena task through the full level1 pipeline (Haiku recon -> Sonnet analyze ->
+# generate) regardless of attached files. Set false to re-enable the level3 patch.diff
+# fast-path (mechanical recon, skips Haiku) when we confirm the leaderboard scores level3.
+assume_level1 = true
 
 [claude_api]
 max_retries = 4                   # AsyncAnthropic SDK auto-retries 429/5xx with backoff

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ..config import Settings
+from ..core.config import Settings
 from .base import AgentBackend
 
 

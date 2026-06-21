@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import logging
 
-from ..models import StageRequest
+from ..core.models import StageRequest
 from .base import MODEL_IDS, alias_of
 
 log = logging.getLogger("schemata.prompt_cache")

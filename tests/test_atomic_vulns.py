@@ -1,4 +1,4 @@
-from schemata import atomic_vulns as av
+from schemata.knowledge import atomic_vulns as av
 
 
 def test_library_has_28_types():
@@ -55,9 +55,9 @@ def test_menu_lists_all_28():
 def test_prompt_loader_injects_examples_and_menu(tmp_path):
     from types import SimpleNamespace
 
-    from schemata import prompt_loader
-    from schemata.config import load_settings
-    from schemata.models import PipelinePlan, TaskMeta
+    from schemata.core.config import load_settings
+    from schemata.core.models import PipelinePlan, TaskMeta
+    from schemata.pipeline import prompt_loader
 
     (tmp_path / "description.txt").write_text("heap-buffer-overflow in ReadImage")
     handle = SimpleNamespace(task_dir=tmp_path, masked_id=None, agent_id=None,

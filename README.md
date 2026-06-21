@@ -1,45 +1,36 @@
-# SCHE-MA — Security CHallenge Exploitation Multi-Agent
-<img width="1084" height="379" alt="image" src="https://github.com/user-attachments/assets/45b5e0e1-5f6a-491f-932d-5daef3db6122" />
+# SCHE-MA - Security CHallenge Exploitation Multi-Agent
 
 > Mythos+ Task Force
 
-SCHE-MA is a C/C++ memory-safety vulnerability reproduction agent: given a
-vulnerable source bundle plus optional sanitizer trace, patch diff, and harness
-evidence, it tries to synthesize a crash-triggering PoC. **CyberGym** remains the
-primary benchmark adapter (1,507 real-world tasks; ARVO + OSS-Fuzz), not the only
-target. The engine ships with two interchangeable backends behind one
-`AgentBackend` interface:
+SCHE-MA is a local CyberGym agent for reproducing C/C++ memory-safety
+vulnerabilities. Given a CyberGym task, it generates the vulnerable source
+workspace, runs a staged LLM workflow, attempts to synthesize a crash-triggering
+PoC, submits candidate PoCs to a local CyberGym server, and records the result
+under `runs/`.
 
-- **Claude Code backend** (`claude_code`) — headless `claude -p` sessions, no API key
-  required (uses Claude Code subscription auth).
-- **Claude API backend** (`claude_api`) — direct Anthropic Messages tool-loop with
-  prompt caching and per-stage model routing.
+The active code path is local CyberGym only:
 
-The AgentBeats CyberGym leaderboard purple agent runs on top of the same engine
-via the A2A wrapper in `src/schemata/a2a/`.
+```text
+task id -> gen_task -> route -> recon -> analyze -> generate -> submit -> confirm -> record
+```
 
----
+The retired AgentBeats A2A / arena integration has been moved to
+`src/schemata/legacy/` and `legacy/deploy/`; see `legacy/README.md` if that path
+ever needs to be revived.
 
 ## Install
 
-Requires **Python 3.12+** (see `pyproject.toml`). The `schema` and `schemata`
-console scripts are installed by `pip install -e .` into the active environment;
-they are NOT pre-built binaries on disk. If you type `schema` and get
-`command not found`, either the venv isn't activated or the editable install
-hasn't happened.
-
-### One-shot (any machine with Python 3.12+)
+Requires Python 3.12+.
 
 ```bash
-bash scripts/setup.sh            # picks Python 3.12+, makes .venv, pip install -e .
-source .venv/bin/activate        # so `schema` is on PATH
+bash scripts/setup.sh
+source .venv/bin/activate
 schema --help
 ```
 
-The script auto-detects `python3.12`, `python3.13`, or `python3` (whichever is
-≥ 3.12). Override with `SCHEMA_PYTHON=/path/to/python bash scripts/setup.sh`.
-It does NOT require pyenv, a local cybergym clone, or an API key — those are
-optional (see below).
+The setup script creates `.venv`, installs this package in editable mode, and
+copies `.env.example` to `.env` when needed. It can also link a local CyberGym
+clone if `CYBERGYM_CLONE_DIR` is set.
 
 `scripts/setup.sh` also creates local config files from tracked templates:
 `config/templates/schemata.toml -> config/schemata.toml` and
@@ -49,211 +40,239 @@ For local `arvo:*` tasks, either set `CYBERGYM_CLONE_DIR` or `CYBERGYM_DIR`
 before setup so `external/cybergym` is symlinked, or override `CYBERGYM_PYTHON`,
 `CYBERGYM_DATA_DIR`, and `CYBERGYM_MASK_MAP` in your shell.
 
-### Fully manual (if the script can't be used)
+Manual install:
 
 ```bash
 python3.12 -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip
 pip install -e .
-schema --help
 ```
 
-If you skip `source .venv/bin/activate`, you can still call the script directly:
+Console scripts are installed by the editable install:
+
+- `schema` - interactive REPL
+- `schemata` - Typer CLI
+
+If `schema` is not found, activate the venv or call it directly:
 
 ```bash
-./.venv/bin/schema               # equivalent to `schema` after activation
+./.venv/bin/schema --help
 ```
 
-### Permanent PATH (optional)
+## Configuration
 
-If you don't want to `source .venv/bin/activate` every shell:
+Main config lives in `config/schemata.toml`.
+
+Important values:
+
+- `[backend].default`: `claude_code` or `claude_api`
+- `[server]`: local CyberGym server URL, data dir, mask map, and CyberGym Python
+- `[budget]`: global and per-task soft budget
+- `[models]`: stage model aliases
+- `[stages.*]`: tool permissions and max turns per stage
+
+Environment variables override the CyberGym / Anthropic pieces where supported:
+
+- `ANTHROPIC_API_KEY`
+- `CYBERGYM_SERVER_URL`
+- `CYBERGYM_DATA_DIR`
+- `CYBERGYM_MASK_MAP`
+- `CYBERGYM_PYTHON`
+
+For `claude_api`, put the key in `.env` or export it:
 
 ```bash
-echo 'export PATH="'"$PWD"'/.venv/bin:$PATH"' >> ~/.bashrc
-exec $SHELL
-schema --help
+ANTHROPIC_API_KEY=sk-...
 ```
 
-### Troubleshooting `command not found: schema`
+`claude_code` uses the local Claude Code CLI login instead of an API key.
 
-| Symptom | Fix |
-|---|---|
-| `schema: command not found` after fresh clone | run `pip install -e .` inside an activated venv |
-| `pip install -e .` errored on Python 3.11 or older | install Python 3.12 (`pyenv install 3.12.12` or distro package) and re-create the venv |
-| Installed in a venv that isn't activated | `source .venv/bin/activate` or use `./.venv/bin/schema` |
-| `cybergym` symlink missing (only matters for `/task arvo:*`) | `CYBERGYM_CLONE_DIR=/path/to/cybergym bash scripts/setup.sh` |
-| `claude` not found (claude_code backend) | install Claude Code (`https://github.com/anthropics/claude-code`), or `schema --backend claude_api` |
-| `ANTHROPIC_API_KEY not set` (claude_api backend) | `cp .env.example .env` and fill `ANTHROPIC_API_KEY=sk-...`, or `schema --backend claude_code` |
+## Local CyberGym Server
 
----
-
-## `schema` — interactive runner (Claude Code-style REPL)
+Task execution expects a local CyberGym submit server. The helper script uses
+`CYBERGYM_DIR` and defaults to `/data/seory0/projects/cybergym`:
 
 ```bash
-schema                            # launches the REPL
-schema --backend claude_api       # override default backend
-schema --config path/to/toml      # override config
+scripts/start_server.sh
 ```
 
-Inside the REPL:
+Optional overrides:
 
+```bash
+CYBERGYM_DIR=/path/to/cybergym PORT=8666 scripts/start_server.sh
 ```
-schema> /help                     show slash commands
-schema> /task arvo:10400          run a single CyberGym task
-schema> /subset 5                 run first 5 of data/subset_tasks.txt
-schema> /backend claude_api       switch backend mid-session
-schema> /config                   print resolved settings
-schema> /cost                     session cost totals
-schema> what's a heap-buffer-overflow?     # free-form prompt → current backend
+
+The SCHE-MA config must point at the same CyberGym data, mask map, and Python
+environment used by that server.
+
+## Interactive Runner
+
+Launch the REPL:
+
+```bash
+schema
+schema --backend claude_api
+schema --config config/schemata.toml
+```
+
+Useful commands:
+
+```text
+schema> /help
+schema> /task arvo:10400
+schema> /subset 5
+schema> /backend claude_api
+schema> /model sonnet
+schema> /config
+schema> /cost
 schema> /exit
 ```
 
-Free-form prompts (no leading `/`) route by the active backend:
+Free-form prompts without a leading `/` are sent to the active backend as a
+normal chat-style request.
 
-- `backend=claude_code` → `claude -p <prompt>` subprocess (Claude Code auth, **no API**)
-- `backend=claude_api` → Anthropic Messages API (uses `ANTHROPIC_API_KEY`)
+## CLI
 
-`/task` and `/subset` always honor the active backend.
-
-The runner lives in `src/schemata/runner/` as four small modules
-(`repl.py`, `commands.py`, `prompt_runner.py`, `__main__.py`). It does not
-import the engine modules apart from `orchestrator.run_task`, so engine and
-arena code are unaffected by REPL changes.
-
----
-
-## Classic CLI
+Run one task:
 
 ```bash
-schemata run-task   --task-id arvo:10400 --backend claude_code
-schemata run-subset --backend claude_code --limit 5
-schemata reproduce  --repo ./vul-src --harness-cmd './fuzzer {poc}' --description bug.txt
-schemata repl       # same as `schema`
+schemata run-task --task-id arvo:10400 --backend claude_code
 ```
 
-Outputs land in `runs/<timestamp>/<task>/`: `outcome.json`, `stage_*.json`,
-`submissions.jsonl`, and `runs/<timestamp>/cost.json`.
+Run a subset from `data/subset_tasks.txt`:
 
----
+```bash
+schemata run-subset --backend claude_code --limit 5
+```
+
+Launch the same REPL through the CLI:
+
+```bash
+schemata repl
+```
+
+There is also a thin wrapper that defaults to `run-task`:
+
+```bash
+python scripts/run_task.py --task-id arvo:10400 --backend claude_code
+```
 
 ## Pipeline
 
-```
-Task → classifier → seed prior.mech_intel → recon(carry-forward) → analyze → generate → submit
-                                                    haiku    sonnet    sonnet|opus
-```
+Routing is controlled by `config/routing_rules.json`.
 
-**Task classifier** (`src/schemata/a2a/task_class.py`) inspects which attachments
-the green agent sent, not metadata:
+| Difficulty | Stages | Instrumentation | Thinking | Generate model |
+|---|---|---:|---:|---|
+| `easy` | `recon`, `generate` | no | no | `sonnet` |
+| `medium` | `recon`, `analyze`, `generate` | yes | no | `sonnet` |
+| `hard` | `recon`, `analyze`, `generate` | yes | yes | `opus` |
 
-| Class | Files present | `generate` model | Notes |
-|---|---|---|---|
-| `arvo_level3` | description + error + patch + repo-vul | **opus** | full ground truth |
-| `oss_fuzz`    | description + repo-vul                 | **opus** | hardest: no patch/error |
-| `arvo_level1` | description + repo-vul (only)          | sonnet   | no ground truth to pay for opus |
-
-Mechanical extractors (`level3_intel.py`) parse `patch.diff` (hunks + inline
--/+ bodies), `error.txt` (sanitizer, sink, frames), and the LLVMFuzzerTestOneInput
-harness from `repo-vul.tar.gz` (frame-hint exact match, no name heuristic), and
-summarize newly added patch invariants. The result is preserved under
-`prior["mech_intel"]`; recon carries those fields forward into `prior["recon"]`
-so analyze/generate can use both the immutable seed and the refined recon.
-
-Stage models are configurable in generated local `config/schemata.toml`
+Stage model defaults are configured in generated local `config/schemata.toml`
 (template: `config/templates/schemata.toml`):
 
 ```toml
 [models]
 recon = "haiku"
 analyze = "sonnet"
+discriminate = "sonnet"
 
 [models.by_difficulty]
-easy   = "sonnet"
+easy = "sonnet"
 medium = "sonnet"
-hard   = "opus"      # arvo_level3 + oss_fuzz route here
+hard = "opus"
 ```
 
-## CyberGym Knowledge Policy
+`orchestrator.run_task` can promote an `easy` task to include `analyze` when
+cheap recon fails to localize the bug, and can retry `generate` once with Opus
+when no PoC was produced.
 
-SCHE-MA keeps leaderboard-time knowledge separate from offline research aids.
-For CyberGym Level 1 runs, use only the supplied vulnerable repo,
-`description.txt`, task label if provided by the harness, generated workspace
-outputs, and verifier feedback. Do not use CyberGym-wide `tasks.json`, precomputed
-per-task indexes, historical PoCs, patch diffs, or sanitizer traces unless those
-artifacts are part of the task setting being evaluated.
+## Backends
 
-Policy and taxonomy references:
+Both backends implement the same `AgentBackend` stage contract.
 
-- `docs/cybergym-knowledge-policy.md`
-- `docs/memory-poc-taxonomy.md`
+### `claude_code`
 
-Level 1-safe description classification:
+Runs each stage as a headless `claude -p` subprocess in the task directory.
+The generate stage submits with `bash submit.sh <poc>`, and the orchestrator
+then independently confirms the winning PoC through `SubmitClient`.
+
+This backend uses:
+
+- local Claude Code authentication
+- `permission_mode = "bypassPermissions"` from config
+- no `ANTHROPIC_API_KEY`
+
+### `claude_api`
+
+Runs an Anthropic Messages tool loop with SCHE-MA's local tool dispatcher.
+The generate stage uses the `submit_poc` tool, and the orchestrator still
+performs an independent confirmation afterward.
+
+This backend uses:
+
+- `ANTHROPIC_API_KEY`
+- prompt-cache helpers in `src/schemata/backends/prompt_cache.py`
+- tool schemas and permissions in `src/schemata/backends/tools/`
+
+## Outputs
+
+Runs are written to `runs/<timestamp>/<task>/`.
+
+Typical files:
+
+- `outcome.json` - final task outcome and route plan
+- `stage_recon.json`
+- `stage_analyze.json`
+- `stage_generate.json`
+- `submissions.jsonl`
+- `escalation.json` when recon promoted the task
+- `no_submit_retry.json` when the no-PoC retry fired
+- `runs/<timestamp>/cost.json`
+- `runs/<timestamp>/subset_summary.json` for subset runs
+
+Analyze existing subset runs:
 
 ```bash
-python3 scripts/classify_cybergym_description.py --text-file path/to/description.txt
+python scripts/analyze_subset.py --run runs/<run_id> --out-md docs/subset_results.md
 ```
-
-Offline aggregate classification of a downloaded CyberGym metadata JSON is
-available only for research and prompt/taxonomy design:
-
-```bash
-python3 scripts/classify_cybergym_description.py --offline-tasks-json tasks.json --summary
-```
-
----
-
-## AgentBeats arena (purple agent)
-
-The arena container is `ghcr.io/seory0/schemata-cybergym:latest`. The amber
-manifest is `amber-manifest.json5`. Quick Submit Config templates live under
-`submit/`:
-
-```bash
-submit/quick-submit-level3.json   # 49-task full level3 run, num_workers=5
-submit/quick-submit-smoke5.json   # 5-task smoke test
-```
-
-Upload either at https://agentbeats.dev/agentbeater/cybergym Quick Submit with
-your `ANTHROPIC_API_KEY` secret.
-
-Rebuild + push:
-
-```bash
-docker build -t ghcr.io/seory0/schemata-cybergym:<tag> -t .../:latest .
-docker push  ghcr.io/seory0/schemata-cybergym:<tag>
-docker push  ghcr.io/seory0/schemata-cybergym:latest
-```
-
----
 
 ## Layout
 
-- `src/schemata/runner/` — interactive REPL (commands, prompt routing, REPL loop)
-- `src/schemata/core/` — generic C/C++ memory-safety reproduction models, intake, verifier, runner
-- `src/schemata/backends/` — `base.py`, `claude_code.py`, `claude_api.py`, `prompt_cache.py`
-- `src/schemata/a2a/` — AgentBeats wrapper: server, executor, brain, task classifier, level3/oss-fuzz mechanical extractors
-- `src/schemata/orchestrator.py` — CyberGym adapter path: route → stages → submit → confirm → record
-- `src/schemata/cybergym/` — `task_gen.py`, `submit.py`, `intake.py`, `ids.py`
-- `src/schemata/{router,cost_tracker,prompt_loader,instrument,recon}.py`
-- `prompts/` — stage system prompts + shared situational-context / output-contract
-- `config/templates/` - tracked config templates; generated `config/*` is local/ignored
-- `scripts/classify_cybergym_description.py` — description-only memory bug family classifier
-- `submit/` — Quick Submit Config JSONs for the leaderboard
-
----
-
-## Notes
-
-- The Claude Code backend runs with `permission_mode = bypassPermissions` because
-  `claude -p` cannot answer prompts. Run on trusted machines only.
-- `external/cybergym` is a symlink to a local clone; swap for a real submodule on
-  a fresh machine.
-- A live `claude_api` call spends real budget. The interactive REPL prints token
-  usage to `session.last_usage`; check `/cost` for cumulative totals.
+- `src/schemata/cli/` - both entry points: `main.py` (`schemata` Typer CLI) and `repl.py`/`commands.py`/`prompt_runner.py`/`ui.py` (`schema` REPL)
+- `src/schemata/pipeline/` - the reproduction pipeline: `orchestrator.py` (local CyberGym task driver), `router.py` (task metadata → pipeline plan), `prompt_loader.py` (stage prompt rendering + `StageRequest` assembly), `recon.py`, `harness.py`, `instrument.py`, and `discriminate.py` (backend-agnostic Stage 4 referee; not wired into the active local route by default)
+- `src/schemata/core/` - shared spine: `models.py` (Pydantic models), `config.py` (settings + paths), `cost_tracker.py`, `util.py`
+- `src/schemata/knowledge/` - `atomic_vulns.py` vulnerability taxonomy + recipe retrieval
+- `src/schemata/backends/` - backend interface, Claude Code backend, Claude API backend
+- `src/schemata/backends/tools/` - Claude API tool definitions, permissions, dispatcher
+- `src/schemata/cybergym/` - task generation, task ID metadata, submit client
+- `src/schemata/legacy/` - retired AgentBeats A2A / arena code
+- `config/templates/` - tracked config templates; generated `config/*` is local/git-ignored
+- `skills/` - stage prompts (`stages/`), shared context (`shared/`), atomic-vuln knowledge (`knowledge/`)
+- `scripts/` - setup, server, task wrapper, run analysis helpers
+- `data/subset_tasks.txt` - default subset list
+- `docs/` - design notes and experiment reports
 
 ## Tests
 
 ```bash
-.venv/bin/python -m pytest tests/ -q       # 70+ tests, all paths covered
+.venv/bin/python -m pytest tests/ -q
 ```
+
+Current local check:
+
+```text
+80 passed, 49 skipped
+```
+
+Most skipped tests cover the retired A2A / arena integration.
+
+## Notes
+
+- The active path assumes a local CyberGym clone and server for `arvo:*` /
+  `oss-fuzz:*` task runs.
+- The config in this repository currently contains machine-local CyberGym paths;
+  override them with environment variables or a custom config on another machine.
+- `claude_api` calls spend real Anthropic API budget.
+- `claude_code` runs with broad local permissions inside the task workspace; use it
+  only on trusted machines.

@@ -5,8 +5,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from schemata.runner import commands, prompt_runner, ui
-from schemata.runner.repl import Session, main
+from schemata.cli import commands, prompt_runner, ui
+from schemata.cli.repl import Session, main
 
 
 def _settings():
@@ -93,7 +93,7 @@ def test_ask_api_requires_key():
 
 def test_ask_code_requires_claude_cli():
     s = _session(backend="claude_code")
-    with patch("schemata.runner.prompt_runner.shutil.which", return_value=None):
+    with patch("schemata.cli.prompt_runner.shutil.which", return_value=None):
         with pytest.raises(RuntimeError, match="claude.*not found"):
             prompt_runner.ask(s, "hello")
 
@@ -101,8 +101,8 @@ def test_ask_code_requires_claude_cli():
 def test_ask_dispatches_to_code_subprocess():
     s = _session(backend="claude_code")
     fake = MagicMock(returncode=0, stdout='{"result":"hi","usage":{"input_tokens":3}}', stderr="")
-    with patch("schemata.runner.prompt_runner.shutil.which", return_value="/usr/bin/claude"), \
-         patch("schemata.runner.prompt_runner.subprocess.run", return_value=fake) as run:
+    with patch("schemata.cli.prompt_runner.shutil.which", return_value="/usr/bin/claude"), \
+         patch("schemata.cli.prompt_runner.subprocess.run", return_value=fake) as run:
         res = prompt_runner.ask(s, "hello")
     assert res.text == "hi"
     assert res.usage == {"input_tokens": 3}

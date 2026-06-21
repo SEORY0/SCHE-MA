@@ -13,11 +13,11 @@ import json
 import subprocess
 from pathlib import Path
 
+from ...core.models import StageRequest, SubmissionRecord
+from ...core.util import truncate
 from ...cybergym.submit import SubmitClient
-from ...instrument import Container, Instrumenter
-from ...models import StageRequest, SubmissionRecord
-from ...recon import semgrep_summary
-from ...util import truncate
+from ...pipeline.instrument import Container, Instrumenter
+from ...pipeline.recon import semgrep_summary
 from . import permissions
 
 _HEAD, _TAIL = 4000, 1000  # tool-output truncation budget (chars)
@@ -78,14 +78,6 @@ class Dispatcher:
         )
         out = (proc.stdout or "") + (proc.stderr or "")
         return truncate(out, _HEAD, _TAIL) + f"\n[exit {proc.returncode}]", False
-
-    async def _t_read_outline(self, a: dict) -> tuple[str, bool]:
-        from ...codemap import outline_text
-        p = self._resolve(a["path"])
-        if not p.is_file():
-            return f"no such file: {a['path']}", True
-        text = await asyncio.to_thread(outline_text, p)
-        return truncate(text, 6000, 500), False
 
     async def _t_read_file(self, a: dict) -> tuple[str, bool]:
         p = self._resolve(a["path"])

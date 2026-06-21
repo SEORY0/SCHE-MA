@@ -10,9 +10,9 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
-from schemata.config import load_settings
-from schemata.models import PipelinePlan, TaskMeta
-from schemata.prompt_loader import build_request
+from schemata.core.config import load_settings
+from schemata.core.models import PipelinePlan, TaskMeta
+from schemata.pipeline.prompt_loader import build_request
 
 _DESC = "UNIQUEDESC heap-buffer-overflow in mng_get_long"
 

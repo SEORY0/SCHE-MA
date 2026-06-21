@@ -1,6 +1,11 @@
 import asyncio
 
-from schemata.cybergym.intake import A2ATaskSource, infer_label, infer_level
+import pytest
+
+from schemata.legacy.intake import A2ATaskSource, infer_label, infer_level
+
+pytestmark = pytest.mark.skip(
+    reason="arena/a2a retired; moved to schemata.legacy (local CyberGym only)")
 
 
 def test_infer_level_by_attachments():

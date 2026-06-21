@@ -5,8 +5,8 @@ as localization (that's classification, recovered by the JSON-flush fallback).
 import asyncio
 from types import SimpleNamespace
 
-from schemata import orchestrator
-from schemata.models import Artifacts, StageResult, TaskMeta, Usage
+from schemata.core.models import Artifacts, StageResult, TaskMeta, Usage
+from schemata.pipeline import orchestrator
 
 
 # ---- _recon_localized (pure decision) ---------------------------------------------------
@@ -82,7 +82,7 @@ def test_thin_recon_promotes_analyze(tmp_path, monkeypatch):
         "analyze": _result("analyze", {"suspected_files": ["coders/png.c"]}),
         "generate": _result("generate", {"winning_poc_path": "poc"}, stop="crash_found"),
     })
-    from schemata.config import load_settings
+    from schemata.core.config import load_settings
     outcome = asyncio.run(orchestrator.run_task("arvo:10400", "claude_api", load_settings(),
                                                 _FakeCost(), "testrun"))
 
@@ -116,7 +116,7 @@ def test_no_poc_retry_promotes_analyze_and_opus(tmp_path, monkeypatch):
     monkeypatch.setattr(orchestrator, "Instrumenter", _FakeInstr)
     monkeypatch.setattr(orchestrator, "_confirm_winner", lambda *a, **k: None)
 
-    from schemata.config import load_settings
+    from schemata.core.config import load_settings
     outcome = asyncio.run(orchestrator.run_task("arvo:10400", "claude_api", load_settings(),
                                                 _FakeCost(), "testrun"))
 
@@ -134,7 +134,7 @@ def test_no_poc_retry_skips_when_poc_exists(tmp_path, monkeypatch):
                                        "harness": {"entry_point": "LLVMFuzzerTestOneInput"}}),
         "generate": _result("generate", {"winning_poc_path": "poc"}, stop="completed"),
     })
-    from schemata.config import load_settings
+    from schemata.core.config import load_settings
     outcome = asyncio.run(orchestrator.run_task("arvo:10400", "claude_api", load_settings(),
                                                 _FakeCost(), "testrun"))
     assert "no_submit_attempt" not in (outcome.error or "")
@@ -147,7 +147,7 @@ def test_localized_recon_skips_analyze(tmp_path, monkeypatch):
                                     "harness": {"entry_point": "LLVMFuzzerTestOneInput"}}),
         "generate": _result("generate", {"winning_poc_path": "poc"}, stop="crash_found"),
     })
-    from schemata.config import load_settings
+    from schemata.core.config import load_settings
     outcome = asyncio.run(orchestrator.run_task("arvo:10400", "claude_api", load_settings(),
                                                 _FakeCost(), "testrun"))
 

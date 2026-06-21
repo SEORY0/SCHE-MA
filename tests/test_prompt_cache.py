@@ -2,10 +2,10 @@
 import logging
 from pathlib import Path
 
-from schemata.config import load_settings
-from schemata.models import StageRequest, ThinkingConfig
 from schemata.backends import prompt_cache as pc
 from schemata.backends.base import MODEL_IDS
+from schemata.core.config import load_settings
+from schemata.core.models import StageRequest, ThinkingConfig
 
 
 def _req(model="opus", thinking=False, system="x" * 40000):

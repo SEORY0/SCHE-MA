@@ -1,6 +1,6 @@
-from schemata.config import load_settings
-from schemata.models import TaskMeta
-from schemata import router
+from schemata.core.config import load_settings
+from schemata.core.models import TaskMeta
+from schemata.pipeline import router
 
 
 def _meta(diff):
