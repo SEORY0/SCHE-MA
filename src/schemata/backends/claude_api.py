@@ -14,7 +14,7 @@ re-confirms the winner independently. Caching + model params come from prompt_ca
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from ..core.config import RUNS_DIR
 from ..core.models import Artifacts, StageRequest, StageResult, Usage
@@ -98,7 +98,7 @@ class StageTrace:
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             row = {
-                "ts": datetime.now(timezone.utc).isoformat(),
+                "ts": datetime.now(UTC).isoformat(),
                 "event": event,
                 **fields,
             }

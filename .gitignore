@@ -12,3 +12,7 @@ runs/
 .pytest_cache/
 *.egg-info/
 .omc/
+
+# presentation/binary artifacts (internal TF materials — keep out of the repo)
+*.pdf
+*.pptx
