@@ -12,11 +12,10 @@ dependencies = [
     "pydantic-settings>=2.2",
     "typer>=0.12",
     "python-dotenv>=1.0",
-    "a2a-sdk[http-server]>=0.3.20,<1.0",
-    "uvicorn>=0.30",
-    "tree-sitter>=0.23",
-    "tree-sitter-c>=0.23",
-    "tree-sitter-cpp>=0.23",
+    # a2a-sdk + uvicorn were only used by the retired AgentBeats arena server
+    # (now src/schemata/legacy/a2a/). Re-add them to revive it — see legacy/README.md.
+    # tree-sitter{,-c,-cpp} were dropped with the Stage-1 `read_outline` outline tool:
+    # Recon now reads the pre-injected harness + whole suspect files (see src/schemata/pipeline/harness.py).
     "rich>=13.7",
 ]
 
@@ -24,8 +23,8 @@ dependencies = [
 dev = ["pytest>=8.0"]
 
 [project.scripts]
-schemata = "schemata.cli:app"
-schema = "schemata.runner.repl:main"
+schemata = "schemata.cli.main:app"
+schema = "schemata.cli.repl:main"
 
 [build-system]
 requires = ["setuptools>=68"]

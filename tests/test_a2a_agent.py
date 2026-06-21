@@ -1,4 +1,4 @@
-"""Unit tests for the A2A brain (src/schemata/a2a/agent.py — M6-b).
+"""Unit tests for the A2A brain (src/schemata/legacy/a2a/agent.py — M6-b).
 
 The executor-level integration is covered by test_a2a_executor.py with fake brains.
 Here we exercise the real `run()` plumbing in isolation: backend + prompt_loader are
@@ -13,10 +13,19 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 
-from schemata.a2a.agent import (SKELETON_POC, _a2a_plan, _read_poc, run,
-                                run_skeleton)
-from schemata.models import Artifacts, StageResult, SubmissionRecord
+from schemata.core.models import Artifacts, StageResult, SubmissionRecord
+from schemata.legacy.a2a.agent import (
+    SKELETON_POC,
+    _a2a_plan,
+    _read_poc,
+    run,
+    run_skeleton,
+)
+
+pytestmark = pytest.mark.skip(
+    reason="arena/a2a retired; moved to schemata.legacy (local CyberGym only)")
 
 
 # ---- run_skeleton (M6-a fallback) ------------------------------------------------
@@ -112,12 +121,12 @@ class _FakeBackend:
 def _patch_brain(monkeypatch, backend, request_factory=None):
     """Patch ClaudeApiBackend(settings) -> backend, and prompt_loader.build_request."""
     import schemata.backends.claude_api as api_mod
-    import schemata.prompt_loader as pl_mod
+    import schemata.pipeline.prompt_loader as pl_mod
 
     monkeypatch.setattr(api_mod, "ClaudeApiBackend", lambda settings: backend)
 
     def _fake_build(stage, plan, meta, handle, prior, settings, backend_name, **kw):
-        from schemata.models import StageRequest
+        from schemata.core.models import StageRequest
         return StageRequest(
             stage=stage,
             system_prompt="sys", kickoff="go",
@@ -127,8 +136,52 @@ def _patch_brain(monkeypatch, backend, request_factory=None):
     monkeypatch.setattr(pl_mod, "build_request", _fake_build)
 
 
-def _settings():
-    return SimpleNamespace(model_for=lambda stage, diff: f"{stage}-model")
+def _settings(arena=None):
+    return SimpleNamespace(model_for=lambda stage, diff: f"{stage}-model", arena=arena or {})
+
+
+def test_assume_level1_bypasses_level3_fastpath(tmp_path: Path, monkeypatch):
+    """Default [arena].assume_level1=true: a level3 task still runs the full level1
+    pipeline (Haiku recon -> analyze -> generate); the mechanical fast-path is NOT used."""
+    import schemata.legacy.a2a.agent as agent_mod
+    called = []
+    monkeypatch.setattr(agent_mod, "extract_level3_recon",
+                        lambda d: called.append(d) or {"crash_type": "x", "suspected_files": ["f"]})
+    poc = tmp_path / "p.bin"
+    poc.write_bytes(b"PWN")
+    results = {
+        "recon": StageResult(stage="recon", structured_output={"summary": "r"}),
+        "analyze": StageResult(stage="analyze"),
+        "generate": StageResult(stage="generate", stop_reason="crash_found",
+                                artifacts=Artifacts(poc_path=str(poc))),
+    }
+    fb = _FakeBackend(results)
+    _patch_brain(monkeypatch, fb)
+    handle = SimpleNamespace(task_dir=str(tmp_path), label="t", masked_id="m", level="level3")
+
+    out = asyncio.run(run(handle, {}, _settings(), transport=None))  # default arena={} -> assume_level1
+    assert out == b"PWN"
+    assert called == []                                       # extract_level3_recon NOT called
+    assert [c.stage for c in fb.calls] == ["recon", "analyze", "generate"]  # full level1 pipeline
+
+
+def test_level3_fastpath_when_assume_level1_false(tmp_path: Path, monkeypatch):
+    """[arena].assume_level1=false re-enables the level3 fast-path: mechanical recon,
+    recon+analyze skipped, straight to generate."""
+    import schemata.legacy.a2a.agent as agent_mod
+    monkeypatch.setattr(agent_mod, "extract_level3_recon",
+                        lambda d: {"crash_type": "x", "suspected_files": ["f"]})
+    poc = tmp_path / "p.bin"
+    poc.write_bytes(b"PWN")
+    results = {"generate": StageResult(stage="generate", stop_reason="crash_found",
+                                       artifacts=Artifacts(poc_path=str(poc)))}
+    fb = _FakeBackend(results)
+    _patch_brain(monkeypatch, fb)
+    handle = SimpleNamespace(task_dir=str(tmp_path), label="t", masked_id="m", level="level3")
+
+    out = asyncio.run(run(handle, {}, _settings({"assume_level1": False}), transport=None))
+    assert out == b"PWN"
+    assert [c.stage for c in fb.calls] == ["generate"]        # recon+analyze skipped
 
 
 def test_run_returns_poc_bytes_from_generate(tmp_path: Path, monkeypatch):
@@ -245,7 +298,7 @@ def test_run_retries_with_opus_when_poc_but_no_crash(tmp_path: Path, monkeypatch
     The old `poc is None` gate self-suppressed it (because _read_poc returns the non-crashing
     PoC's bytes), so exactly the hard tasks needing Opus blocked their own escalation. This
     test FAILS on the old gate (no retry -> out == b"NOCRASH") and passes on the crash-based one."""
-    import schemata.discriminate as disc_mod
+    import schemata.pipeline.discriminate as disc_mod
     monkeypatch.setattr(disc_mod, "discriminate_enabled", lambda s: False)  # isolate the retry gate
 
     cand = tmp_path / "cand.bin"

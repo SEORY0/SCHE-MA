@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from ..models import StageRequest, StageResult
+from ..core.models import StageRequest, StageResult
 
 # Anthropic public pricing ($/MTok): (input, output, cache_read, cache_write_5m)
 PRICES = {
@@ -51,6 +51,3 @@ class AgentBackend(ABC):
     @abstractmethod
     async def run_stage(self, req: StageRequest) -> StageResult:
         ...
-
-    def supports(self, stage: str) -> bool:  # both backends support all stages
-        return stage in ("recon", "analyze", "generate")

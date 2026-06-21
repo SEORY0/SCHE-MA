@@ -12,9 +12,9 @@ from pathlib import Path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "fixtures"))
 import mock_anthropic as mock  # noqa: E402
 
-from schemata.config import load_settings  # noqa: E402
-from schemata.models import StageRequest, Usage, Verdict  # noqa: E402
 from schemata.backends.claude_api import ClaudeApiBackend  # noqa: E402
+from schemata.core.config import load_settings  # noqa: E402
+from schemata.core.models import StageRequest, Usage, Verdict  # noqa: E402
 
 
 def _req(cwd, *, stage, tier, model, **kw):

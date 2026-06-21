@@ -1,5 +1,5 @@
 """Tests for Stage 4 — the independent discriminator (src/schemata/discriminate.py) and
-its retarget loop wired into the A2A brain (src/schemata/a2a/agent.py).
+its retarget loop wired into the A2A brain (src/schemata/legacy/a2a/agent.py).
 
 The discriminator is the FP killer: it judges whether an achieved crash is the bug named
 in description.txt or an any-crash that also crashes the fix (scoring 0), and on REJECT it
@@ -12,9 +12,14 @@ import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 
-from schemata.a2a import agent as brain_mod
-from schemata.config import load_settings
-from schemata.discriminate import parse_verdict
+import pytest
+
+from schemata.core.config import load_settings
+from schemata.legacy.a2a import agent as brain_mod
+from schemata.pipeline.discriminate import parse_verdict
+
+pytestmark = pytest.mark.skip(
+    reason="arena/a2a retired; moved to schemata.legacy (local CyberGym only)")
 
 
 # ---- parse_verdict (normalization + fail-safe) -----------------------------------
@@ -54,7 +59,7 @@ class _DiscBackend:
         self._crash = crash
 
     async def run_stage(self, req):
-        from schemata.models import Artifacts, StageResult, SubmissionRecord
+        from schemata.core.models import Artifacts, StageResult, SubmissionRecord
         self.stages.append(req.stage)
         if req.stage == "generate":
             subs = []

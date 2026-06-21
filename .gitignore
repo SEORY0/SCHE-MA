@@ -11,3 +11,4 @@ runs/
 /tmp/
 .pytest_cache/
 *.egg-info/
+.omc/

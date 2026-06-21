@@ -8,8 +8,8 @@ import json
 import types
 
 from schemata.backends.claude_api import ClaudeApiBackend
-from schemata.config import load_settings
-from schemata.models import StageRequest
+from schemata.core.config import load_settings
+from schemata.core.models import StageRequest
 
 
 def _tu(id, name, inp):

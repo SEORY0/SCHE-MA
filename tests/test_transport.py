@@ -1,6 +1,11 @@
 import asyncio
 
-from schemata.cybergym.transport import A2AGreenSubmit
+import pytest
+
+from schemata.legacy.transport import A2AGreenSubmit
+
+pytestmark = pytest.mark.skip(
+    reason="arena/a2a retired; moved to schemata.legacy (local CyberGym only)")
 
 
 def _run(coro):

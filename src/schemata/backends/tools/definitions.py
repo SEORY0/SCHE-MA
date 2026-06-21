@@ -3,7 +3,7 @@
 Each entry is a Messages-API tool definition (name / description / input_schema).
 `permissions.tools_for(req)` selects the subset a given stage+tier may use; the
 `dispatcher` executes the resulting tool_use blocks. Descriptions are written to
-steer the agent toward the pre-installed tooling (see prompts/shared/tool_profile.md)
+steer the agent toward the pre-installed tooling (see skills/shared/tool_profile.md)
 and toward token-cheap behaviour (small outputs, raw-byte PoCs, local validation).
 """
 from __future__ import annotations
@@ -28,26 +28,10 @@ BASH = {
     },
 }
 
-READ_OUTLINE = {
-    "name": "read_outline",
-    "description": (
-        "Map a source file WITHOUT reading its bodies: returns one line per function/struct "
-        "(signature + `@L start-end`). Use this FIRST on any large C/C++ file, then `read_file` "
-        "the one function range you need. Reading whole large files is the top token waster."
-    ),
-    "input_schema": {
-        "type": "object",
-        "properties": {
-            "path": {"type": "string", "description": "Path relative to the task directory."},
-        },
-        "required": ["path"],
-    },
-}
-
 READ_FILE = {
     "name": "read_file",
-    "description": "Read a UTF-8 text file. Prefer a line range (from `read_outline`) over the "
-                   "whole file: pass `start_line`/`end_line` to read just one function. Large "
+    "description": "Read a UTF-8 text file. Pass `start_line`/`end_line` to read just one "
+                   "function range, or omit them to read a suspect source file in full. Large "
                    "reads are truncated.",
     "input_schema": {
         "type": "object",
@@ -171,7 +155,7 @@ MCP_CODE_QUERY = {
 ALL_TOOLS: dict[str, dict] = {
     t["name"]: t
     for t in (
-        BASH, READ_OUTLINE, READ_FILE, WRITE_FILE, GREP, GLOB, SEMGREP_SCAN,
+        BASH, READ_FILE, WRITE_FILE, GREP, GLOB, SEMGREP_SCAN,
         ARVO_COMPILE, ARVO_RUN, SUBMIT_POC, MCP_CODE_QUERY,
     )
 }

@@ -16,9 +16,9 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 
-from ..config import RUNS_DIR
-from ..models import Artifacts, StageRequest, StageResult, Usage
-from ..util import extract_last_json, truncate
+from ..core.config import RUNS_DIR
+from ..core.models import Artifacts, StageRequest, StageResult, Usage
+from ..core.util import extract_last_json, truncate
 from . import prompt_cache
 from .base import AgentBackend, cost_of
 from .tools import permissions
@@ -246,7 +246,7 @@ class ClaudeApiBackend(AgentBackend):
             # the vul binary — a crash there might be a false positive (also crashes fix,
             # scoring 0). Let the agent see the verdict, compare the sanitizer trace to
             # error_intel.summary, and decide whether to stop or refine. max_iters bounds
-            # the loop. See prompts/stage3_generate.md, critical_scoring_rule.
+            # the loop. See skills/stages/generate.md, critical_scoring_rule.
             if disp.crash_found and req.submit_fn is None:
                 stop = "crash_found"
                 trace.write("stage_stop_trigger", turn=_turn, reason=stop)

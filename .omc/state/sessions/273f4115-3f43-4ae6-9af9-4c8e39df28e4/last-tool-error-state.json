@@ -1,7 +1,0 @@
-{
-  "tool_name": "Bash",
-  "tool_input_preview": "{\"command\":\"gh api -X PATCH /user/packages/container/schemata-cybergym --field visibility=public 2>&1 | head -10; echo ---; gh api /user/packages/container/schemata-cybergym --jq '{name, visibility}'\"...",
-  "error": "Exit code 1\n{\r\n  \"message\": \"Not Found\",\r\n  \"documentation_url\": \"https://docs.github.com/rest\",\r\n  \"status\": \"404\"\r\n}gh: Not Found (HTTP 404)\n---\n{\"message\":\"You need at least read:packages scope to get a package.\",\"documentation_url\":\"https://docs.github.com/rest/packages/packages#get-a-package-for-the-authenticated-user\",\"status\":\"403\"}gh: You need at least read:packages scope to get a package. (HTTP 403)",
-  "timestamp": "2026-06-08T06:53:13.057Z",
-  "retry_count": 1
-}

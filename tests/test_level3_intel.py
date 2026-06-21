@@ -1,4 +1,4 @@
-"""Tests for the level3 mechanical-recon extractors (src/schemata/a2a/level3_intel.py).
+"""Tests for the level3 mechanical-recon extractors (src/schemata/legacy/a2a/level3_intel.py).
 
 Two parsers (patch.diff, error.txt) plus the composer `extract_level3_recon`. Each parser
 is checked against (a) a synthetic minimal example for behavior, and (b) the real
@@ -16,9 +16,15 @@ from types import SimpleNamespace
 
 import pytest
 
-from schemata.a2a import agent as brain_mod
-from schemata.a2a.level3_intel import (extract_level3_recon, parse_error_txt,
-                                       parse_patch_diff)
+from schemata.legacy.a2a import agent as brain_mod
+from schemata.legacy.a2a.level3_intel import (
+    extract_level3_recon,
+    parse_error_txt,
+    parse_patch_diff,
+)
+
+pytestmark = pytest.mark.skip(
+    reason="arena/a2a retired; moved to schemata.legacy (local CyberGym only)")
 
 
 # ---- synthetic patch.diff (git-style + mercurial-style) --------------------------
@@ -166,7 +172,7 @@ class _RecordingBackend:
         self.stages: list[str] = []
 
     async def run_stage(self, req):
-        from schemata.models import Artifacts, StageResult
+        from schemata.core.models import Artifacts, StageResult
         self.stages.append(req.stage)
         if req.stage == "generate":
             return StageResult(stage="generate", artifacts=Artifacts())
@@ -175,28 +181,30 @@ class _RecordingBackend:
 
 def _patch_backend(monkeypatch, backend):
     import schemata.backends.claude_api as api_mod
-    import schemata.prompt_loader as pl_mod
+    import schemata.pipeline.prompt_loader as pl_mod
     monkeypatch.setattr(api_mod, "ClaudeApiBackend", lambda settings: backend)
 
     def _fake_build(stage, plan, meta, handle, prior, settings, backend_name, **kw):
-        from schemata.models import StageRequest
+        from schemata.core.models import StageRequest
         return StageRequest(stage=stage, system_prompt="s", kickoff="k",
                             cwd=Path(handle.task_dir), model=plan.stage_models[stage],
                             allowed_tools=[], permission_tier="read_only")
     monkeypatch.setattr(pl_mod, "build_request", _fake_build)
 
 
-def _settings():
-    return SimpleNamespace(model_for=lambda stage, diff: f"{stage}-m")
+def _settings(arena=None):
+    return SimpleNamespace(model_for=lambda stage, diff: f"{stage}-m", arena=arena or {})
 
 
 def test_brain_skips_recon_on_level3_with_intel(tmp_path: Path, monkeypatch):
+    # The level3 fast-path is now opt-in (default [arena].assume_level1=true forces level1);
+    # exercise it explicitly with assume_level1=false.
     (tmp_path / "patch.diff").write_text(GIT_PATCH)
     (tmp_path / "error.txt").write_text(ASAN_ERROR)
     backend = _RecordingBackend()
     _patch_backend(monkeypatch, backend)
     handle = SimpleNamespace(task_dir=str(tmp_path), label="t1", masked_id=None, level="level3")
-    asyncio.run(brain_mod.run(handle, {}, _settings(), transport=None, emit=None))
+    asyncio.run(brain_mod.run(handle, {}, _settings({"assume_level1": False}), transport=None, emit=None))
     assert backend.stages == ["generate"]  # recon LLM call skipped
 
 
@@ -209,9 +217,10 @@ def test_brain_runs_recon_on_level1(tmp_path: Path, monkeypatch):
 
 
 def test_brain_runs_recon_on_level3_when_intel_missing(tmp_path: Path, monkeypatch):
-    """Level3 attachments absent from task_dir -> fall back to LLM recon, don't crash."""
+    """Level3 fast-path enabled (assume_level1=false) but attachments absent from task_dir
+    -> fall back to LLM recon, don't crash."""
     backend = _RecordingBackend()
     _patch_backend(monkeypatch, backend)
     handle = SimpleNamespace(task_dir=str(tmp_path), label="t1", masked_id=None, level="level3")
-    asyncio.run(brain_mod.run(handle, {}, _settings(), transport=None, emit=None))
+    asyncio.run(brain_mod.run(handle, {}, _settings({"assume_level1": False}), transport=None, emit=None))
     assert backend.stages == ["recon", "analyze", "generate"]
