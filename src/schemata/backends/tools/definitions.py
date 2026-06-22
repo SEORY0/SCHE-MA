@@ -189,6 +189,53 @@ MCP_CODE_QUERY = {
     },
 }
 
+# --- ACI high-level tools (SWE-agent style) --------------------------------------
+
+READ_FUNCTION = {
+    "name": "read_function",
+    "description": (
+        "Read a specific C/C++ function from a source file by name. Returns the complete "
+        "function body with line numbers. Much faster than grep+read_file for locating "
+        "and reading a single function."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "path": {"type": "string", "description": "Path to the source file (relative to task dir)."},
+            "function": {"type": "string", "description": "Function name to extract."},
+        },
+        "required": ["path", "function"],
+    },
+}
+
+FIND_SEEDS = {
+    "name": "find_seeds",
+    "description": (
+        "Discover corpus/seed/testdata files in the task directory. Returns paths and sizes, "
+        "sorted by relevance. Optionally filter by format hint (e.g. 'png', 'elf', 'wav'). "
+        "Use this before building a PoC from scratch — seed mutation has 2-3x higher success rate."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "format_hint": {"type": "string", "description": "Optional format to prioritize (e.g. 'png', 'elf')."},
+        },
+    },
+}
+
+SUMMARIZE_SUBMIT_FEEDBACK = {
+    "name": "summarize_submit_feedback",
+    "description": (
+        "Summarize all PoC submission attempts so far: exit codes, crash status, sanitizer "
+        "hints, and patterns. Use when you have multiple failed submissions and need to "
+        "understand what's going wrong before trying a different strategy."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {},
+    },
+}
+
 # --- registry --------------------------------------------------------------------
 
 ALL_TOOLS: dict[str, dict] = {
@@ -197,6 +244,7 @@ ALL_TOOLS: dict[str, dict] = {
         BASH, READ_FILE, WRITE_FILE, GREP, GLOB, SEMGREP_SCAN,
         ARVO_COMPILE, ARVO_RUN, GDB_SCRIPT, COVERAGE_CHECK,
         SUBMIT_POC, MCP_CODE_QUERY,
+        READ_FUNCTION, FIND_SEEDS, SUMMARIZE_SUBMIT_FEEDBACK,
     )
 }
 

@@ -1,3 +1,13 @@
+---
+name: pwntools_binary
+description: Binary packing and exploit primitives for flat byte-level PoC construction
+type: tool
+availability: always
+required_package: pwn
+requires_tools: []
+triggers: [flat_binary, seed_mutation, integer_packing]
+token_cost: low
+---
 <tool_skill name="pwntools" availability="always">
 # pwntools — Binary Packing & Exploit Primitives
 

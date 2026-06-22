@@ -96,6 +96,17 @@ def _read(name: str) -> str:
     return (SKILLS_DIR / name).read_text()
 
 
+def _read_task_guidance(task_dir: Path) -> str:
+    """Read workspace-local TASK_GUIDANCE.md if it exists."""
+    p = task_dir / "TASK_GUIDANCE.md"
+    try:
+        if p.is_file():
+            return p.read_text(errors="replace")[:2000]
+    except OSError:
+        pass
+    return ""
+
+
 def _render(template: str, tokens: dict[str, str | None]) -> str:
     """Substitute {{tokens}}; None values render as empty string (A2A mode has no masked_id)."""
     out = template
@@ -229,8 +240,12 @@ def build_request(
     analysis_tools_advice = ""
     if stage == "generate":
         seed_first_hint = _seed_first_hint(prior_results)
+        disc = (prior_results or {}).get("discriminate") or {}
+        failure_classes = [disc["failure_class"]] if disc.get("failure_class") else None
         analysis_tools_advice = analysis_tools.advice(
-            has_instrument=bool(instrument_container))
+            has_instrument=bool(instrument_container),
+            failure_classes=failure_classes,
+        )
 
     tokens = {
         "project": meta.project,
@@ -256,13 +271,15 @@ def build_request(
 
     parts = [_render(_read("shared/situational_context.md"), tokens)]
     if not plan.minimize_info:
-        # Global, task-agnostic knowledge base (disclosed at submission; placed early in the
-        # static prefix for prompt-cache reuse). Dropped on the minimize_info (lean) route.
         parts.append(_render(_read("shared/knowledge.md"), tokens))
     parts.append(_render(_read(_STAGE_PROMPT[stage]), tokens))
     if not plan.minimize_info:
         parts.append(_render(_read("shared/tool_profile.md"), tokens))
     parts.append(_render(_read("shared/output_contracts.md"), tokens))
+    # Inject workspace-local TASK_GUIDANCE.md if present
+    task_guidance = _read_task_guidance(handle.task_dir)
+    if task_guidance:
+        parts.append(task_guidance)
     system_prompt = "\n\n".join(parts)
 
     thinking = None

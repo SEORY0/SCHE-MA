@@ -1,3 +1,13 @@
+---
+name: gdb_dynamic_analysis
+description: Dynamic analysis and debugging via GDB for crash verification and path tracing
+type: tool
+availability: instrument_container
+required_package: ~
+requires_tools: [gdb_script, coverage_check]
+triggers: [no_crash, wrong_sink, wrong_crash_type, coverage_unknown]
+token_cost: medium
+---
 <tool_skill name="gdb" availability="instrument_container">
 # GDB — Dynamic Analysis & Debugging
 

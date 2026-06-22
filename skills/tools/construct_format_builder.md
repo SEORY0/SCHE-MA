@@ -1,3 +1,13 @@
+---
+name: construct_format_builder
+description: Declarative binary format builder for complex multi-field binary files
+type: tool
+availability: always
+required_package: construct
+requires_tools: []
+triggers: [format_complex, nested_structures, binary_format]
+token_cost: medium
+---
 <tool_skill name="construct" availability="always">
 # construct — Declarative Binary Format Builder
 

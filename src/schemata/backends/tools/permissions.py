@@ -41,6 +41,11 @@ def tools_for(req: StageRequest) -> list[dict]:
         names.append("submit_poc")
     if req.mcp_endpoint:
         names.append("mcp_code_query")
+    # ACI high-level tools: available in write and full tiers
+    if tier in ("write", "full"):
+        names += ["read_function", "find_seeds"]
+    if tier == "full":
+        names.append("summarize_submit_feedback")
     # de-dupe while preserving order
     seen: dict[str, None] = {}
     for n in names:

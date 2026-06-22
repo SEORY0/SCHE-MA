@@ -1,3 +1,13 @@
+---
+name: angr_reachability
+description: Static binary reachability analysis via call-graph traversal
+type: tool
+availability: always
+required_package: angr
+requires_tools: []
+triggers: [reachability_unknown, no_instrument, multi_fuzzer]
+token_cost: high
+---
 <tool_skill name="angr" availability="always">
 # angr — Static Binary Reachability Analysis
 

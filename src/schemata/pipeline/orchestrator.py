@@ -95,6 +95,32 @@ def _build_failure_context(prior: dict, submissions: list) -> dict:
     return ctx
 
 
+def _write_task_guidance(task_dir: Path, meta, contract: dict, plan) -> None:
+    """Write workspace-local TASK_GUIDANCE.md with dynamic but non-task-specific guidance."""
+    lines = ["<task_guidance>"]
+    input_mode = contract.get("input_mode", "unknown")
+    convention = contract.get("fuzzer_convention", "unknown")
+    lines.append(f"- input_mode: {input_mode}")
+    lines.append(f"- fuzzer_convention: {convention}")
+    lines.append(f"- difficulty: {plan.difficulty}")
+    if contract.get("entry_point"):
+        lines.append(f"- entry_point: {contract['entry_point']}")
+    if contract.get("min_size"):
+        lines.append(f"- min_input_size: {contract['min_size']}")
+    if contract.get("seed_candidates"):
+        seeds = ", ".join(str(s) for s in contract["seed_candidates"][:5])
+        lines.append(f"- seed_files: [{seeds}]")
+    if plan.generate_strategy_hint:
+        lines.append(f"- recommended_strategy: {plan.generate_strategy_hint}")
+    lines.append("- allowed_evidence: description.txt + repo-vul source only")
+    lines.append("- forbidden: web/CVE lookup, repo-fix contents, patch.diff in level1")
+    lines.append("</task_guidance>")
+    try:
+        (task_dir / "TASK_GUIDANCE.md").write_text("\n".join(lines))
+    except OSError:
+        pass
+
+
 def _merge_harness_contract(recon_output: dict, contract: dict) -> dict:
     """Keep LLM recon output, but fill missing harness fields from deterministic scan."""
     if not contract:
@@ -252,6 +278,8 @@ async def run_task(
     # Compute harness contract first — routing agent uses it for classification.
     contract = harness_contract(task_dir)
     plan = await routing_agent.plan(meta, task_dir, settings, cost, contract)
+
+    _write_task_guidance(task_dir, meta, contract, plan)
 
     backend = make_backend(backend_name, settings)
     instrumenter = Instrumenter(timeout_s=int(settings.instrument.get("timeout_s", 600)))

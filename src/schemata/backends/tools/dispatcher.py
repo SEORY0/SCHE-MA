@@ -368,6 +368,114 @@ class Dispatcher:
     async def _t_mcp_code_query(self, a: dict) -> tuple[str, bool]:
         return "MCP code index is not enabled for this task (M4).", False
 
+    # -- ACI high-level tools ------------------------------------------------------
+
+    async def _t_read_function(self, a: dict) -> tuple[str, bool]:
+        p = self._resolve(a["path"])
+        if not p.is_file():
+            return f"no such file: {a['path']}", True
+        func_name = a.get("function", "")
+        if not func_name:
+            return "no function name provided", True
+        text = await asyncio.to_thread(p.read_text, "utf-8", "replace")
+        lines = text.splitlines()
+        start, end = self._find_function_range(lines, func_name)
+        if start is None:
+            return f"function '{func_name}' not found in {a['path']}", True
+        numbered = "\n".join(
+            f"{i + 1}\t{lines[i]}" for i in range(start, min(end + 1, len(lines)))
+        )
+        return truncate(numbered, _HEAD, _TAIL), False
+
+    @staticmethod
+    def _find_function_range(lines: list[str], name: str) -> tuple[int | None, int | None]:
+        """Find the start and end line indices of a C/C++ function by name."""
+        import re
+        pattern = re.compile(
+            rf'(?:^|\s)(?:static\s+|inline\s+|extern\s+|virtual\s+)*'
+            rf'[\w\s\*&:<>,]+\b{re.escape(name)}\s*\(',
+        )
+        for i, line in enumerate(lines):
+            if pattern.search(line):
+                brace_start = None
+                for j in range(i, min(i + 10, len(lines))):
+                    if '{' in lines[j]:
+                        brace_start = j
+                        break
+                if brace_start is None:
+                    continue
+                depth = 0
+                for j in range(brace_start, len(lines)):
+                    depth += lines[j].count('{') - lines[j].count('}')
+                    if depth <= 0:
+                        return i, j
+                return i, min(i + 100, len(lines) - 1)
+        return None, None
+
+    async def _t_find_seeds(self, a: dict) -> tuple[str, bool]:
+        fmt_hint = (a.get("format_hint") or "").lower()
+
+        def _scan() -> list[dict]:
+            seed_dirs = ["corpus", "seed", "seeds", "testdata", "testcases",
+                         "sample", "samples", "example", "examples", "test"]
+            results: list[dict] = []
+            seen: set[str] = set()
+            for sd in seed_dirs:
+                d = self.cwd / sd
+                if d.is_dir():
+                    for f in sorted(d.rglob("*")):
+                        if f.is_file() and f.stat().st_size > 0:
+                            rel = str(f.relative_to(self.cwd))
+                            if rel not in seen:
+                                seen.add(rel)
+                                results.append({"path": rel, "size": f.stat().st_size})
+            for pattern in ["*.corpus", "*.seed", "*.bin", "*.dat", "*.raw",
+                            "*.sample", "*.test", "*.input"]:
+                for f in sorted(self.cwd.glob(pattern)):
+                    if f.is_file() and f.stat().st_size > 0:
+                        rel = str(f.relative_to(self.cwd))
+                        if rel not in seen:
+                            seen.add(rel)
+                            results.append({"path": rel, "size": f.stat().st_size})
+            if fmt_hint:
+                for ext_pat in [f"*.{fmt_hint}", f"**/*.{fmt_hint}"]:
+                    for f in sorted(self.cwd.glob(ext_pat)):
+                        if f.is_file() and f.stat().st_size > 0:
+                            rel = str(f.relative_to(self.cwd))
+                            if rel not in seen:
+                                seen.add(rel)
+                                results.append({"path": rel, "size": f.stat().st_size})
+            return results[:50]
+
+        seeds = await asyncio.to_thread(_scan)
+        if not seeds:
+            return "no seed/corpus files found in the task directory", False
+        lines = [f"{s['path']}  ({s['size']} bytes)" for s in seeds]
+        header = f"Found {len(seeds)} seed file(s):\n"
+        return header + "\n".join(lines), False
+
+    async def _t_summarize_submit_feedback(self, a: dict) -> tuple[str, bool]:
+        if not self.submissions:
+            return "No submissions yet. Build and submit a PoC first.", False
+        lines = [f"Total submissions: {len(self.submissions)}",
+                 f"Crashes: {sum(1 for s in self.submissions if s.crashed)}",
+                 f"Non-crashes: {sum(1 for s in self.submissions if not s.crashed)}",
+                 ""]
+        for i, s in enumerate(self.submissions, 1):
+            status = "CRASH" if s.crashed else "no crash"
+            lines.append(f"  [{i}] {s.poc_path}: exit={s.exit_code} ({status})")
+            if s.output_excerpt:
+                excerpt = s.output_excerpt[:200].replace("\n", " ")
+                lines.append(f"      output: {excerpt}")
+        if self.consec_nocrash >= 2:
+            lines.append(f"\nPATTERN: {self.consec_nocrash} consecutive non-crashes. "
+                         "Consider a fundamentally different construction strategy.")
+        all_zero = all(s.exit_code == 0 for s in self.submissions)
+        if all_zero and len(self.submissions) >= 2:
+            lines.append("\nALL EXIT 0: Input never reaches the vulnerable code path. "
+                         "Try: different format, seed mutation, or verify entry point reachability.")
+        return "\n".join(lines), False
+
     # -- helpers ------------------------------------------------------------------
 
     def _resolve(self, path: str) -> Path:
