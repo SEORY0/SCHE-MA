@@ -50,12 +50,16 @@ def test_bash_allowlist():
         r'rg "LLVMFuzzerTestOneInput|main" src-vul/ --max-count=10',
     )[0]
     assert permissions.bash_allowed("read_only", r"grep -rn 'foo|bar' src-vul/ | head")[0]
+    assert permissions.bash_allowed("read_only", r'grep -rn "cblk->x0" src-vul/ | head')[0]
     assert permissions.bash_allowed("read_only", r'grep -rn "a > b" src-vul/ | head')[0]
+    assert permissions.bash_allowed("read_only", r'grep -rn "a < b" src-vul/ | head')[0]
     assert not permissions.bash_allowed("read_only", "rm -rf src")[0]
     assert not permissions.bash_allowed("read_only", "grep -rn foo . | rm -rf src")[0]
     assert not permissions.bash_allowed("read_only", "cat x > y")[0]
+    assert not permissions.bash_allowed("read_only", "cat < x")[0]
+    assert not permissions.bash_allowed("read_only", "cat <<EOF")[0]
     # full tier is unrestricted
-    assert permissions.bash_allowed("full", "rm -rf build && make")[0]
+    assert permissions.bash_allowed("full", "rm -rf build && make < input")[0]
 
 
 # -- dispatcher ------------------------------------------------------------------
@@ -81,6 +85,15 @@ def test_bash_runs_in_cwd(tmp_path):
     d = _disp(tmp_path)
     out, is_err = asyncio.run(d.execute("bash", {"cmd": "ls"}))
     assert not is_err and "marker.txt" in out and "[exit 0]" in out
+
+
+def test_bash_exit_guide_for_search_no_match(tmp_path):
+    (tmp_path / "marker.txt").write_text("x")
+    d = _disp(tmp_path, tier="read_only")
+    out, is_err = asyncio.run(d.execute("bash", {"cmd": "grep -rn nope ."}))
+    assert not is_err
+    assert "[exit 1]" in out
+    assert "<agent guide> no matches found by grep/rg" in out
 
 
 def test_submit_poc_side_effects(tmp_path, monkeypatch):

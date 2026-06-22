@@ -89,8 +89,8 @@ def _split_shell_segments(cmd: str) -> list[str]:
     return segments
 
 
-def _has_unquoted_output_redirection(cmd: str) -> bool:
-    """Return true for shell output redirection outside quotes/escapes."""
+def _has_unquoted_redirection(cmd: str) -> bool:
+    """Return true for shell redirection outside quotes/escapes."""
     quote: str | None = None
     i = 0
     while i < len(cmd):
@@ -107,30 +107,36 @@ def _has_unquoted_output_redirection(cmd: str) -> bool:
             quote = ch
             i += 1
             continue
-        if ch == ">":
+        if ch in "<>":
             return True
         i += 1
     return False
+
+
+def leading_programs(cmd: str) -> list[str]:
+    """Return leading executables for each shell segment."""
+    progs: list[str] = []
+    for seg in _split_shell_segments(cmd):
+        toks = shlex.split(seg, posix=True)
+        i = 0
+        while i < len(toks) and _ENV_ASSIGN.match(toks[i]):
+            i += 1
+        if i < len(toks):
+            progs.append(toks[i].split("/")[-1])
+    return progs
 
 
 def bash_allowed(tier: str, cmd: str) -> tuple[bool, str]:
     """Gate a bash command. Only the read_only tier is restricted."""
     if tier != "read_only":
         return True, ""
-    if _has_unquoted_output_redirection(cmd):
-        return False, "output redirection is not allowed in the Recon (read_only) stage"
-    for seg in _split_shell_segments(cmd):
-        try:
-            toks = shlex.split(seg, posix=True)
-        except ValueError as e:
-            return False, f"could not parse bash command in the Recon (read_only) stage: {e}"
-        # skip leading VAR=val env assignments
-        i = 0
-        while i < len(toks) and _ENV_ASSIGN.match(toks[i]):
-            i += 1
-        if i >= len(toks):
-            continue
-        prog = toks[i].split("/")[-1]
+    if _has_unquoted_redirection(cmd):
+        return False, "input/output redirection is not allowed in the Recon (read_only) stage"
+    try:
+        progs = leading_programs(cmd)
+    except ValueError as e:
+        return False, f"could not parse bash command in the Recon (read_only) stage: {e}"
+    for prog in progs:
         if prog not in READONLY_BASH_ALLOW:
             return False, (
                 f"'{prog}' is not allowed in the Recon (read_only) stage; "

@@ -22,6 +22,61 @@ from . import permissions
 
 _HEAD, _TAIL = 4000, 1000  # tool-output truncation budget (chars)
 
+_SEARCH_PROGS = {"grep", "egrep", "fgrep", "rg"}
+
+
+def _bash_leading_programs(cmd: str) -> list[str]:
+    try:
+        return permissions.leading_programs(cmd)
+    except ValueError:
+        return []
+
+
+def _has_unquoted_pipe(cmd: str) -> bool:
+    quote: str | None = None
+    i = 0
+    while i < len(cmd):
+        ch = cmd[i]
+        if ch == "\\" and quote != "'":
+            i += 2
+            continue
+        if quote:
+            if ch == quote:
+                quote = None
+            i += 1
+            continue
+        if ch in ("'", '"'):
+            quote = ch
+            i += 1
+            continue
+        if ch == "|":
+            return True
+        i += 1
+    return False
+
+
+def _bash_exit_guide(cmd: str, rc: int, output: str) -> str:
+    progs = _bash_leading_programs(cmd)
+    uses_search = any(p in _SEARCH_PROGS for p in progs)
+    if rc == 0:
+        if _has_unquoted_pipe(cmd) and not output.strip():
+            return (
+                "pipeline exit 0 can mask earlier no-match/path failures; "
+                "rerun the search without the pipe if this is surprising"
+            )
+        return ""
+    if rc == 1 and uses_search:
+        return "no matches found by grep/rg; broaden the pattern or verify the searched path"
+    if rc == 2 and uses_search:
+        return "grep/rg syntax, quoting, or path error; inspect stderr and simplify the command"
+    if rc == 126:
+        return "command found but not executable; check permissions or choose another tool"
+    if rc == 127:
+        return "command not found; check the executable name or PATH"
+    if rc > 128:
+        return f"command terminated by signal {rc - 128}"
+    return "non-zero exit; inspect stdout/stderr for the failing command, path, or argument"
+
 
 class Dispatcher:
     def __init__(self, req: StageRequest, settings):
@@ -77,7 +132,11 @@ class Dispatcher:
             cwd=str(self.cwd), capture_output=True, text=True, timeout=timeout,
         )
         out = (proc.stdout or "") + (proc.stderr or "")
-        return truncate(out, _HEAD, _TAIL) + f"\n[exit {proc.returncode}]", False
+        guide = _bash_exit_guide(cmd, proc.returncode, out)
+        suffix = f"\n[exit {proc.returncode}]"
+        if guide:
+            suffix += f"\n<agent guide> {guide}"
+        return truncate(out, _HEAD, _TAIL) + suffix, False
 
     async def _t_read_outline(self, a: dict) -> tuple[str, bool]:
         from ...codemap import outline_text
