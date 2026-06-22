@@ -12,7 +12,7 @@ from ..core.util import truncate
 from ..cybergym import ids
 from ..cybergym.submit import SubmitClient
 from ..cybergym.task_gen import gen_task
-from . import discriminate, router
+from . import discriminate, routing_agent
 from .harness import harness_contract
 from .instrument import Instrumenter
 from .prompt_loader import build_request
@@ -51,6 +51,48 @@ def _recon_localized(recon_output: dict | None) -> bool:
         return True
     harness = so.get("harness")
     return bool(isinstance(harness, dict) and harness.get("entry_point"))
+
+
+def _build_failure_context(prior: dict, submissions: list) -> dict:
+    """Summarize first-pass failures so retry analyze/generate can learn from them."""
+    ctx: dict = {}
+    gen_out = prior.get("generate", {})
+    if gen_out:
+        ctx["first_generate_strategy"] = gen_out.get("generation_strategy") or gen_out.get("strategy")
+        ctx["first_generate_vuln_classes"] = gen_out.get("vuln_classes")
+        ctx["first_generate_poc_structure"] = gen_out.get("poc_structure")
+
+    if submissions:
+        ctx["submission_history"] = []
+        for s in submissions[-5:]:
+            entry = {"poc_path": s.poc_path, "exit_code": s.exit_code}
+            if s.output_excerpt:
+                entry["output_hint"] = truncate(s.output_excerpt, 300, 100)
+            ctx["submission_history"].append(entry)
+        all_exit_zero = all(s.exit_code == 0 for s in submissions)
+        ctx["all_exit_zero"] = all_exit_zero
+        if all_exit_zero:
+            ctx["retry_guidance"] = (
+                "All previous submissions returned exit_code=0 (no crash). "
+                "The first-pass approach failed to reach the vulnerable code path. "
+                "For retry: (1) try a fundamentally different construction strategy, "
+                "(2) if seeds exist use seed-mutation instead of from-scratch, "
+                "(3) check if the bug requires a specific sanitizer (MSan/UBSan) "
+                "that may not be in the local binary."
+            )
+        else:
+            ctx["retry_guidance"] = (
+                "Previous submissions had non-zero exit codes but no sanitizer crash. "
+                "The input was malformed enough to error but not trigger the specific bug. "
+                "Make the PoC more structurally valid — only violate the ONE field at the sink."
+            )
+    else:
+        ctx["retry_guidance"] = (
+            "First pass produced NO submissions at all — analysis paralysis. "
+            "For retry: skip deep code analysis, go straight to PoC construction "
+            "using the construction_plan from analyze. Submit early and iterate."
+        )
+    return ctx
 
 
 def _merge_harness_contract(recon_output: dict, contract: dict) -> dict:
@@ -191,12 +233,13 @@ async def run_task(
     run_id: str,
 ) -> TaskOutcome:
     meta = ids.lookup(task_id)
-    plan = router.plan(meta, settings)
 
     run_dir = RUNS_DIR / run_id / _safe(task_id)
     run_dir.mkdir(parents=True, exist_ok=True)
     task_dir = run_dir / "task"
 
+    # Temporary default plan for error path before gen_task completes.
+    plan = routing_agent._default_plan(meta, settings)
     outcome = TaskOutcome(task_id=task_id, backend=backend_name, success=False, run_dir=str(run_dir))
 
     try:
@@ -206,23 +249,21 @@ async def run_task(
         _write_record(run_dir, outcome, plan, {}, [])
         return outcome
 
+    # Compute harness contract first — routing agent uses it for classification.
+    contract = harness_contract(task_dir)
+    plan = await routing_agent.plan(meta, task_dir, settings, cost, contract)
+
     backend = make_backend(backend_name, settings)
     instrumenter = Instrumenter(timeout_s=int(settings.instrument.get("timeout_s", 600)))
     container = None
     if plan.has_instrument and settings.instrument.get("enabled", True):
         container = instrumenter.start(task_id, run_id)
 
-    contract = harness_contract(task_dir)
     prior: dict[str, dict] = {"harness_contract": contract}
     submissions: list[SubmissionRecord] = []
     winning_poc: str | None = None
 
     try:
-        # `stages` is a working copy so we can PROMOTE analyze mid-run (bounded escalation):
-        # recon is cheap, fast triage on Haiku, not the definitive localizer. When it comes
-        # up empty (the "easy" route skips analyze entirely), the right move is one capable
-        # localization stage — NOT looping more Haiku turns (capability ceiling, and "found
-        # it" isn't verifiable until a crash). We escalate at most once, before generate.
         stages = list(plan.stages)
         i = 0
         while i < len(stages):
@@ -246,24 +287,21 @@ async def run_task(
                 res.structured_output = structured
             _write_stage(run_dir, stage, res)
 
-            # Bounded escalation: cheap recon failed to localize and the plan has no analyze
-            # stage -> insert analyze (stronger Sonnet localizer with full tools) before
-            # generate, and lift the lean-context flag so it gets the knowledge base. Fires
-            # once (guarded by "analyze" not in stages). generate then builds on a real plan
-            # instead of re-localizing from scratch on its own.
-            if (stage == "recon" and "analyze" not in stages
-                    and not _recon_localized(res.structured_output)):
-                insert_at = stages.index("generate") if "generate" in stages else len(stages)
-                stages.insert(insert_at, "analyze")
-                plan.minimize_info = False
-                plan.stage_models["analyze"] = settings.model_for("analyze", plan.difficulty)
-                outcome.escalated = True
-                (run_dir / "escalation.json").write_text(json.dumps({
-                    "reason": "recon did not localize (no suspected file/function/harness entry)",
-                    "recon_stop_reason": res.stop_reason,
-                    "promoted_stage": "analyze",
-                    "analyze_model": plan.stage_models["analyze"],
-                }, indent=2, ensure_ascii=False))
+            # Post-recon: LLM routing agent refines the plan based on recon output.
+            # Replaces the old bounded-escalation heuristic — the LLM decides whether
+            # to add/remove analyze, change models, adjust budget, etc.
+            if stage == "recon":
+                old_stages = list(plan.stages)
+                plan = await routing_agent.refine(plan, structured, meta, settings, cost)
+                if plan.stages != old_stages:
+                    stages = list(plan.stages)
+                    outcome.escalated = True
+                    (run_dir / "refinement.json").write_text(json.dumps({
+                        "reason": plan.routing_reasoning or "post-recon refinement",
+                        "old_stages": old_stages,
+                        "new_stages": stages,
+                        "routing_source": plan.routing_source,
+                    }, indent=2, ensure_ascii=False))
 
             if res.stop_reason == "error":
                 outcome.error = res.error
@@ -433,12 +471,19 @@ async def _retry_if_no_poc(
 
     outcome.error = (outcome.error or "") + " [no_submit_attempt; retrying analyze+opus]"
     outcome.escalated = True
+
+    # Collect failure context from first generate pass for the retry.
+    failure_context = _build_failure_context(prior, submissions)
     (run_dir / "no_submit_retry.json").write_text(json.dumps({
         "reason": "generate emitted no PoC (no winning_poc_path, no foreground submit)",
         "promoted_stages": ["analyze", "generate"],
         "generate_model": "opus",
         "stages_run_before_retry": list(outcome.stages_run),
+        "failure_context": failure_context,
     }, indent=2, ensure_ascii=False))
+
+    # Inject failure context so retry analyze/generate can learn from the first attempt.
+    prior["_failure_context"] = failure_context
 
     # Force analyze (if it wasn't there) with full tools + knowledge base.
     plan.minimize_info = False
@@ -448,8 +493,8 @@ async def _retry_if_no_poc(
 
     new_winning_poc: str | None = None
     for stage in ("analyze", "generate"):
-        # Skip analyze if its output is already in `prior` (already ran in the first pass).
-        if stage == "analyze" and prior.get("analyze"):
+        # Re-run analyze even if it ran before — failure context may lead to different localization.
+        if stage == "analyze" and prior.get("analyze") and not failure_context:
             continue
         req = build_request(
             stage, plan, meta, handle, prior, settings, backend_name,

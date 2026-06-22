@@ -34,21 +34,23 @@
       "seed_paths": ["examples/**/*.ps", "test/**/*.ps", "test/**/*.pdf", "Resource/**"]
     },
     "media-container": {
-      "label": "Media containers (AVI/MKV/FLV/WAV/OGG)",
+      "label": "Media containers (AVI/MKV/FLV/WAV/OGG/MVE)",
       "projects": ["ffmpeg", "libav"],
-      "magic": "varies: 52494646 (RIFF/AVI/WAV), 1a45dfa3 (MKV/WebM), 464c5601 (FLV), 4f676753 (OGG)",
+      "magic": "varies: 52494646 (RIFF/AVI/WAV), 1a45dfa3 (MKV/WebM), 464c5601 (FLV), 4f676753 (OGG), 496e746572706c6179204d564520 (Interplay MVE)",
       "header_min_bytes": 12,
-      "structure": "Container-specific: AVI = RIFF + LIST + chunks. MKV = EBML header + Segment + Clusters. FLV = header(9B) + tags. OGG = pages with sync pattern.",
+      "structure": "Container-specific: AVI = RIFF + LIST + chunks. MKV = EBML header + Segment + Clusters. FLV = header(9B) + tags. OGG = pages with sync pattern. MVE = 26-byte signature + chunk stream.",
       "key_fields": {
         "avi_riff": "RIFF(4B) + size(4B LE) + AVI (4B) — then LIST chunks",
         "mkv_ebml": "EBML element ID 0x1A45DFA3 + size + EBML version/doctype elements",
         "flv_header": "FLV(3B) + version(1B) + flags(1B: bit4=audio, bit0=video) + data_offset(4B BE, typically 9)",
-        "ogg_page": "OggS(4B) + version(1B=0) + type(1B) + granule(8B) + serial(4B) + page_seq(4B) + crc(4B) + segments(1B) + segment_table"
+        "ogg_page": "OggS(4B) + version(1B=0) + type(1B) + granule(8B) + serial(4B) + page_seq(4B) + crc(4B) + segments(1B) + segment_table",
+        "mve_signature": "'Interplay MVE File\\x1a\\x00' (20B) + '\\x1a\\x00\\x00\\x00\\x01\\x2c' (6B) = 26B total signature. ipmovie_read_header reads into a fixed signature_buffer (typically 21B) via avio_read. CRITICAL for MSan bugs: input SHORTER than the signature_buffer size leaves stack memory uninitialized — even a 1-byte or 0-byte input can trigger use-of-uninitialized-value in memcmp of the signature.",
+        "mve_chunk": "chunk_type(2B LE) + chunk_size(2B LE) + chunk_data. Types: 0x0000=end, 0x0001=init_audio, 0x0002=audio_only, 0x0003=init_video, 0x0004=video, 0x0005=shutdown"
       },
-      "seed_paths": ["tests/ref/**", "tests/data/**", "fate-suite/**", "test/**/*.avi", "test/**/*.mkv"]
+      "seed_paths": ["tests/ref/**", "tests/data/**", "fate-suite/**", "test/**/*.avi", "test/**/*.mkv", "test/**/*.mve"]
     },
     "asn1-smartcard": {
-      "label": "ASN.1 / Smart card (PKCS#15, ISO 7816)",
+      "label": "ASN.1 / Smart card (PKCS#15, ISO 7816, APDU simulation)",
       "projects": ["opensc", "libtasn1"],
       "magic": "none (TLV-encoded, starts with a tag byte)",
       "header_min_bytes": 2,
@@ -56,9 +58,11 @@
       "key_fields": {
         "tag_byte": "bits 7-6: class (00=universal, 01=application, 10=context, 11=private). bit 5: constructed(1)/primitive(0). bits 4-0: tag number (0x1F = long form follows)",
         "length": "byte < 0x80: short form (length = byte). byte = 0x80: indefinite. byte = 0x81-0x84: long form, next 1-4 bytes = length",
-        "common_tags": "0x30=SEQUENCE, 0x31=SET, 0x02=INTEGER, 0x04=OCTET STRING, 0x06=OID, 0x0C=UTF8String, 0xA0-0xAF=context-specific"
+        "common_tags": "0x30=SEQUENCE, 0x31=SET, 0x02=INTEGER, 0x04=OCTET STRING, 0x06=OID, 0x0C=UTF8String, 0xA0-0xAF=context-specific",
+        "apdu_simulation": "OpenSC fuzz_card uses a virtual reader (fuzzer_reader.c) that simulates APDU communication via a chunk-based format. Input layout: [flags: 8B (unsigned long)] + [len: 1B (uint8_t)] + [reader_data...]. Reader data is a sequence of CHUNKS: each chunk = [chunk_size: 2B LE] + [chunk_data: chunk_size bytes]. The FIRST chunk is the ATR (Answer To Reset — selects the card driver). Subsequent chunks are APDU RESPONSES consumed by sc_transmit_apdu: last 2 bytes of each chunk = SW1 + SW2 (status words), preceding bytes = response data. SW1=0x90 SW2=0x00 means success. Bug pattern: driver checks SW1==0x90 but not SW2, or proceeds with short/empty response data.",
+        "apdu_sw_bytes": "SW1=0x90: success class (SW2=0x00 is OK, others may indicate warnings). SW1=0x61: more data available (SW2=remaining bytes). SW1=0x6X: error class. Common bug: code checks only SW1==0x90 without verifying SW2==0x00, proceeding with uninitialized/unallocated data."
       },
-      "seed_paths": ["src/tests/**", "test/**/*.der", "test/**/*.pem", "test/**/*.p15"]
+      "seed_paths": ["src/tests/**", "test/**/*.der", "test/**/*.pem", "test/**/*.p15", "src/tests/fuzzing/corpus/**"]
     },
     "pcap-network": {
       "label": "PCAP / Network protocols",
@@ -120,16 +124,18 @@
       "seed_paths": ["test/**/*.xml", "test/**/*.html", "test/**/*.svg", "test/**/*.xsl", "result/**/*.xml"]
     },
     "font": {
-      "label": "TrueType / OpenType fonts (TTF/OTF/WOFF)",
+      "label": "TrueType / OpenType fonts (TTF/OTF/WOFF/CFF2)",
       "projects": ["freetype2", "freetype", "harfbuzz", "fontconfig"],
       "magic": "00010000 (TTF) or 4f54544f (OTTO/OTF) or 774f4646 (wOFF) or 774f4632 (wOF2)",
       "header_min_bytes": 12,
-      "structure": "Offset table (12B): sfVersion + numTables + searchRange + entrySelector + rangeShift → table directory (16B per table: tag + checksum + offset + length) → table data.",
+      "structure": "Offset table (12B): sfVersion + numTables + searchRange + entrySelector + rangeShift → table directory (16B per table: tag + checksum + offset + length) → table data. NOTE: FreeType's ftfuzzer accepts input as an uncompressed tar archive (via libarchive) — first entry is the font, additional entries are attached streams. Raw (non-tar) input also works as a single font.",
       "key_fields": {
         "sfVersion": "offset 0, 4B — 0x00010000 for TTF, 'OTTO' for CFF-based OTF",
         "numTables": "offset 4, 2B BE — number of tables",
         "table_record": "tag(4B, e.g. 'cmap','glyf','head') + checksum(4B) + offset(4B) + length(4B)",
-        "required_tables": "cmap (char mapping), head (font header), hhea (horizontal header), hmtx (horizontal metrics), maxp (max profile), name (naming), OS/2 (OS metrics), post (PostScript)"
+        "required_tables": "cmap (char mapping), head (font header), hhea (horizontal header), hmtx (horizontal metrics), maxp (max profile), name (naming), OS/2 (OS metrics), post (PostScript)",
+        "cff2_table": "CFF2 table (tag 'CFF2') for OpenType variable fonts. Header: major(1B=2) + minor(1B) + headerSize(1B) + topDictLength(2B). Top DICT → Font DICT → Private DICT → CharStrings. CFF2 supports variation via 'blend' operator (opcode 23) and ItemVariationStore (vsindex + blend). IMPORTANT: multiple consecutive blend operators cause blend_stack reallocation — if parser->stack pointers into blend_stack are not updated after realloc, they become stale (UAF). This is a known bug pattern in CFF2 parsers.",
+        "variable_font": "Variable fonts use 'fvar' table (axes), 'gvar' (glyph variations), 'CFF2' (CFF2 variations via blend). FreeType's setIntermediateAxis selects midpoint coordinates. Crafting: include fvar with at least 1 axis + CFF2 with blend operators to exercise the variation path."
       },
       "seed_paths": ["test/**/*.ttf", "test/**/*.otf", "test/fonts/**", "perf/**/*.ttf", "test/**/*.woff"]
     },
@@ -194,19 +200,35 @@
       "seed_paths": ["test/**/*.png", "test/**/*.jpg", "test/**/*.tiff", "test/**/*.gif", "test/**/*.bmp", "test/data/**", "fuzz/corpora/**"]
     },
     "mp4-isobmff": {
-      "label": "MP4 / ISOBMFF (ISO Base Media File Format)",
+      "label": "MP4 / ISOBMFF / HEIF (ISO Base Media File Format)",
       "projects": ["gpac", "libheif", "mp4v2"],
       "magic": "varies by brand: 66747970 ('ftyp' box at offset 4); first 4 bytes = box size",
       "header_min_bytes": 8,
-      "structure": "Sequence of boxes: size(4B BE) + type(4B ASCII) + data. Key boxes: ftyp (file type) → moov (movie metadata) → mdat (media data). moov contains mvhd + trak(s). Each trak has tkhd + mdia (mdhd + hdlr + minf + stbl).",
+      "structure": "Sequence of boxes: size(4B BE) + type(4B ASCII) + data. Key boxes: ftyp (file type) → moov (movie metadata) → mdat (media data). moov contains mvhd + trak(s). Each trak has tkhd + mdia (mdhd + hdlr + minf + stbl). HEIF: ftyp(heic/mif1) → meta (hdlr+pitm+iloc+iprp+iref) → mdat.",
       "key_fields": {
         "box": "size(4B BE, 0=extends to EOF, 1=64-bit extended size follows) + type(4B ASCII)",
-        "ftyp": "major_brand(4B) + minor_version(4B) + compatible_brands(4B each)",
+        "ftyp": "major_brand(4B) + minor_version(4B) + compatible_brands(4B each). HEIF brands: 'heic' (HEVC), 'mif1' (generic HEIF)",
         "mvhd": "version(1B) + flags(3B) + creation_time + modification_time + timescale(4B) + duration",
         "tkhd": "version(1B) + flags(3B) + track_ID(4B) + duration + width(4B fixed-point) + height(4B)",
-        "stbl_tables": "stts (time-to-sample), stsc (sample-to-chunk), stsz (sample sizes), stco/co64 (chunk offsets)"
+        "stbl_tables": "stts (time-to-sample), stsc (sample-to-chunk), stsz (sample sizes), stco/co64 (chunk offsets)",
+        "heif_meta": "meta box contains: hdlr (handler='pict'), pitm (primary item ID), iloc (item locations → offsets into mdat), iprp (item properties: ispe=image size, hvcC=HEVC config, auxC=aux type). iref box links items (e.g. auxl=auxiliary image link, thmb=thumbnail).",
+        "heif_alpha": "Alpha auxiliary image: auxC box with type 'urn:mpeg:hevc:2015:auxid:1'. When decoding, libheif creates a separate alpha plane. Bug pattern: code calls copy_new_plane_from(src, heif_channel_Alpha, heif_channel_Y) but if the alpha channel doesn't exist, get_width/get_height return -1 → crash in allocation/copy.",
+        "heif_color_conversion_fuzzer": "libheif also has a color_conversion_fuzzer that takes RAW BYTES (not HEIF files): [width:2B] [height:2B] [bit_depth:1B] [alpha_flag:1B] [in_chroma:1B] [in_colorspace:1B] [out_chroma:1B] [out_colorspace:1B] + plane pixel data. Width/height must be even and non-zero. This harness directly tests convert_colorspace() without HEIF parsing. NOTE: CyberGym may use file-fuzzer (AFL, reads actual HEIF files) instead of color_conversion_fuzzer — check the submit.sh binary path."
       },
-      "seed_paths": ["test/**/*.mp4", "test/**/*.mov", "test/**/*.m4a", "media/**", "test/data/**"]
+      "seed_paths": ["test/**/*.mp4", "test/**/*.mov", "test/**/*.m4a", "media/**", "test/data/**", "test/**/*.heic", "test/**/*.heif"]
+    },
+    "3d-model": {
+      "label": "3D model formats (MD3/MD2/MDL/OBJ/STL/PLY)",
+      "projects": ["assimp", "open3mod"],
+      "magic": "varies: 49445033 (IDP3/MD3), 49445032 (IDP2/MD2), 49445354 (IDST/MDL)",
+      "header_min_bytes": 64,
+      "structure": "MD3: header(108B) → frames(NUM_FRAMES * 56B) → tags(NUM_FRAMES * NUM_TAGS * 112B) → surfaces(variable). Each surface has its own header + shaders + triangles + texcoords + vertices.",
+      "key_fields": {
+        "md3_header": "magic('IDP3', 4B) + version(4B LE, must be 15) + name(64B) + flags(4B) + NUM_FRAMES(4B) + NUM_TAGS(4B) + NUM_SURFACES(4B) + NUM_SKINS(4B) + OFS_FRAMES(4B) + OFS_TAGS(4B) + OFS_SURFACES(4B) + OFS_EOF(4B)",
+        "md3_surface": "magic('IDP3', 4B) + name(64B) + flags(4B) + NUM_FRAMES(4B) + NUM_SHADERS(4B) + NUM_VERTICES(4B) + NUM_TRIANGLES(4B) + OFS_TRIANGLES(4B) + OFS_SHADERS(4B) + OFS_TEXCOORDS(4B) + OFS_XYZNORMALS(4B) + OFS_END(4B)",
+        "md3_validation": "assimp ValidateHeaderOffsets checks: OFS_FRAMES + NUM_FRAMES*56 <= fileSize, OFS_TAGS + NUM_TAGS*NUM_FRAMES*112 <= fileSize, OFS_SURFACES + NUM_SURFACES*sizeof(Surface) <= fileSize. ValidateSurfaceHeaderOffsets checks per-surface offsets. IMPORTANT: validation checks header-level counts but may not fully validate surface DATA sizes (triangles*12B, vertices*8B per frame) — the gap between validated header offsets and actual data consumption is where overflow can occur."
+      },
+      "seed_paths": ["test/**/*.md3", "test/**/*.md2", "test/**/*.obj", "test/models/**", "test-models/**"]
     },
     "dwarf-debug": {
       "label": "DWARF debug info / Compression formats",

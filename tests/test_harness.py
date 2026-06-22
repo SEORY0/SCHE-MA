@@ -11,7 +11,12 @@ import io
 import tarfile
 from pathlib import Path
 
-from schemata.pipeline.harness import harness_contract, recon_context
+from schemata.pipeline.harness import (
+    _crash_identifiers,
+    _rerank_by_crash_context,
+    harness_contract,
+    recon_context,
+)
 
 
 def _make_tar(tar_path: Path, files: dict[str, str]) -> None:
@@ -94,3 +99,67 @@ def test_no_tar_no_raise(tmp_path):
     # nothing at all -> fallback string, never an exception
     ctx = recon_context(tmp_path)
     assert "could not be auto-located" in ctx
+
+
+# --- Description-guided harness reranking ---
+
+
+def test_crash_identifiers_extracts_function_and_file():
+    desc = "heap-buffer-overflow in cff_blend_doBlend src/cff/cffload.c:42"
+    idents = _crash_identifiers(desc)
+    assert "cff_blend_doBlend" in idents
+    assert "cffload" in idents
+
+
+def test_crash_identifiers_splits_qualified_name():
+    desc = "heap-buffer-overflow in assimp::MD3Importer::InternReadFile"
+    idents = _crash_identifiers(desc)
+    assert "assimp" in idents
+    assert "MD3Importer" in idents
+    assert "InternReadFile" in idents
+
+
+def test_crash_identifiers_skips_stop_words():
+    desc = "heap-buffer-overflow in the read buffer"
+    idents = _crash_identifiers(desc)
+    for stop in ("the", "read", "buffer", "heap", "in"):
+        assert stop not in idents
+
+
+def test_crash_identifiers_empty():
+    assert _crash_identifiers("") == []
+    assert _crash_identifiers("no matching pattern here") == []
+
+
+def test_rerank_prefers_crash_relevant_harness(tmp_path):
+    (tmp_path / "description.txt").write_text(
+        "heap-buffer-overflow in assimp::MD3Importer::InternReadFile"
+    )
+    hits = [
+        ("draco_fuzzer.cc", "extern \"C\" int LLVMFuzzerTestOneInput(const uint8_t *d, size_t s) { DecodeDraco(d,s); }"),
+        ("assimp_fuzzer.cc", "extern \"C\" int LLVMFuzzerTestOneInput(const uint8_t *d, size_t s) { assimp::ReadFile(d,s); }"),
+    ]
+    reranked = _rerank_by_crash_context(hits, tmp_path)
+    assert reranked[0][0] == "assimp_fuzzer.cc"
+
+
+def test_rerank_no_description_keeps_order(tmp_path):
+    hits = [("a.cc", "LLVMFuzzerTestOneInput"), ("b.cc", "LLVMFuzzerTestOneInput")]
+    reranked = _rerank_by_crash_context(hits, tmp_path)
+    assert [name for name, _ in reranked] == ["a.cc", "b.cc"]
+
+
+def test_rerank_single_hit_unchanged(tmp_path):
+    (tmp_path / "description.txt").write_text("crash in foo")
+    hits = [("a.cc", "LLVMFuzzerTestOneInput foo()")]
+    assert _rerank_by_crash_context(hits, tmp_path) == hits
+
+
+def test_rerank_preserves_marker_rank_priority(tmp_path):
+    (tmp_path / "description.txt").write_text("crash in foo")
+    hits = [
+        ("main.c", "int main(int argc, char** argv) { foo(); }"),
+        ("fuzz.cc", "extern \"C\" int LLVMFuzzerTestOneInput(const uint8_t *d, size_t s) { bar(); }"),
+    ]
+    reranked = _rerank_by_crash_context(hits, tmp_path)
+    assert reranked[0][0] == "fuzz.cc"

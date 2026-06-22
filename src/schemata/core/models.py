@@ -129,6 +129,12 @@ class PipelinePlan(BaseModel):
     has_mcp_index: bool = False
     thinking: bool = False
     minimize_info: bool = False
+    # Routing agent metadata (additive, backward-compatible defaults)
+    routing_source: str = "default"                            # "llm" | "llm_refined" | "default"
+    vuln_classes: list[str] = Field(default_factory=list)      # pre-classified atomic vuln types
+    generate_strategy_hint: str | None = None                  # e.g. "seed-mutate"
+    budget_hint: str | None = None                             # "low" | "normal" | "high"
+    routing_reasoning: str | None = None                       # LLM one-line justification
 
 
 class TaskOutcome(BaseModel):

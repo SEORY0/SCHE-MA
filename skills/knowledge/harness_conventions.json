@@ -22,6 +22,24 @@
         "ConsumeRemainingBytes": "all remaining bytes from front",
         "ConsumeProbability": "4 bytes from front, converted to float [0,1]",
         "ConsumeFloatingPoint": "4 or 8 bytes from front"
+      },
+      "subtypes": {
+        "apdu-simulation": {
+          "detection_patterns": ["fuzz_connect_card", "fuzz_get_chunk", "fuzzer_reader", "sc_transmit_apdu"],
+          "input_contract": "Smartcard APDU simulation via virtual reader. Input = [flags: sizeof(unsigned long) bytes] + [len: 1B] + [reader_data]. Reader data is a sequence of CHUNKS: [chunk_size: 2B LE] + [chunk_data: chunk_size bytes]. First chunk = ATR (selects card driver based on ATR table match). Subsequent chunks = APDU responses: last 2 bytes are SW1+SW2 status words, preceding bytes are response data.",
+          "poc_shape": "flags(8B) + len(1B) + ATR_chunk(2B_size + ATR_bytes) + APDU_response_chunks(2B_size + response_data + SW1 + SW2 each). ATR must match the target card driver's ATR table. Each APDU response chunk is consumed by one sc_transmit_apdu call in order.",
+          "bug_patterns": ["SW1=0x90 but SW2!=0x00 — driver checks only SW1, proceeds with error/uninitialized data", "Short response data — driver assumes full response length but chunk provides fewer bytes", "Missing chunks — driver calls transmit but fuzzer data exhausted, returns SW1=0x6D SW2=0x00"]
+        },
+        "archive-wrapped": {
+          "detection_patterns": ["archive_read_new", "archive_read_support_format_tar", "archive_read_open_memory"],
+          "input_contract": "Input is an uncompressed tar archive. The harness uses libarchive to extract entries. First entry is the primary file (e.g. font), additional entries are attached resources. Raw (non-tar) input also works — the harness falls back to treating entire input as the primary file.",
+          "poc_shape": "Either: (1) raw file bytes (simpler, try first), or (2) uncompressed tar containing the target file. Tar format: 512B header per file (name[100] + mode[8] + uid[8] + gid[8] + size[12 octal] + mtime[12] + checksum[8] + type[1] + link[100] + padding) + file data padded to 512B boundary + 1024B zero blocks at end."
+        },
+        "raw-header-bytes": {
+          "detection_patterns": ["range.read16", "range.read8", "BitstreamRange", "width = .*read", "height = .*read"],
+          "input_contract": "Input bytes are parsed directly as a structured header (width, height, bit_depth, flags, etc.) followed by pixel/plane data. No file magic or container — the header IS the first N bytes. Common in image processing fuzzers (color conversion, codec testing).",
+          "poc_shape": "Structured byte sequence: header fields in parsing order + plane/pixel data. Read the harness to determine exact field order, sizes, and valid value ranges. Width/height often must be even and non-zero. Flags (alpha, chroma, colorspace) must be valid enum values."
+        }
       }
     },
     "afl": {
@@ -47,5 +65,12 @@
       ],
       "fdp_patterns": {}
     }
+  },
+  "sanitizer_notes": {
+    "_about": "Different sanitizers detect different bug classes. Knowing which sanitizer the binary uses is critical for determining if a bug is reproducible.",
+    "asan": "AddressSanitizer — detects heap/stack/global buffer overflows, use-after-free, double-free, memory leaks. Most common in CyberGym. Does NOT detect uninitialized reads (MSan) or undefined behavior (UBSan).",
+    "msan": "MemorySanitizer — detects use of uninitialized memory. Cannot coexist with ASan in the same binary. If description says 'use-of-uninitialized-value' but binary is ASan-only, the bug is NOT reproducible. MSan binaries may have issues with certain syscalls (e.g. personality()) — if you see 'Operation not permitted' in stderr, the binary is MSan-built.",
+    "ubsan": "UndefinedBehaviorSanitizer — detects undefined behavior: signed overflow, missing return, null dereference, alignment, shift, etc. Can coexist with ASan. If description mentions 'missing return statement' or 'undefined behavior' and the binary lacks UBSan, the bug may not crash. UBSan bugs often produce no crash with ASan-only builds.",
+    "detection_hints": "Check binary output for sanitizer identification: '__asan_' symbols = ASan, '__msan_' = MSan, '__ubsan_' = UBSan. Also check error output: 'ERROR: AddressSanitizer' vs 'WARNING: MemorySanitizer' vs 'runtime error:' (UBSan). If a PoC should crash but returns exit_code=0, consider sanitizer mismatch as the root cause."
   }
 }

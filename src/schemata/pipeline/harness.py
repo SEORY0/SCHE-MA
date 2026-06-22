@@ -39,6 +39,60 @@ _BINARY_EXTS = {
     ".woff", ".mp3", ".mp4", ".avi", ".mov", ".wav", ".mkv", ".md3",
 }
 
+_DESC_STOP = frozenset({
+    "in", "at", "the", "of", "on", "is", "and", "or", "for", "to", "from",
+    "with", "by", "this", "that", "not", "but", "are", "was", "were", "has",
+    "have", "had", "been", "its", "type", "read", "write", "size", "data",
+    "buffer", "heap", "stack", "use", "after", "free", "null", "overflow",
+    "underflow", "address", "unknown", "value", "void", "int", "char",
+    "unsigned", "const", "static", "struct", "src", "bug", "error",
+})
+
+
+def _crash_identifiers(description: str) -> list[str]:
+    """Extract function/module identifiers from crash description for harness relevance."""
+    idents: list[str] = []
+    seen: set[str] = set()
+
+    def _add(token: str) -> None:
+        if len(token) > 2 and token.lower() not in _DESC_STOP and token not in seen:
+            idents.append(token)
+            seen.add(token)
+
+    for m in re.finditer(r"\bin\s+([A-Za-z_][A-Za-z0-9_:]*)", description):
+        for part in m.group(1).split("::"):
+            _add(part)
+    for m in re.finditer(r"([A-Za-z_][A-Za-z0-9_]*\.(?:c|cc|cpp|cxx|h|hpp|hxx))", description):
+        _add(Path(m.group(1)).stem)
+    return idents
+
+
+def _rerank_by_crash_context(
+    hits: list[tuple[str, str]], task_dir: Path,
+) -> list[tuple[str, str]]:
+    """Among harness candidates, prefer those whose source references crash-related identifiers."""
+    if len(hits) <= 1:
+        return hits
+    desc_path = task_dir / "description.txt"
+    if not desc_path.is_file():
+        return hits
+    try:
+        desc = desc_path.read_text(errors="replace")[:2000]
+    except OSError:
+        return hits
+    idents = _crash_identifiers(desc)
+    if not idents:
+        return hits
+    scored = []
+    for name, text in hits:
+        rank = _marker_rank(text)
+        rank = rank if rank is not None else 99
+        combined = text + " " + name
+        relevance = sum(1 for ident in idents if ident in combined)
+        scored.append((rank, -relevance, -_name_score(name), name, (name, text)))
+    scored.sort()
+    return [item for *_, item in scored]
+
 
 def _is_src(name: str) -> bool:
     return Path(name).suffix.lower() in _SRC_EXTS
@@ -118,8 +172,9 @@ def _harness_hits(task_dir: Path) -> list[tuple[str, str]]:
     if tar.is_file():
         hits = _scan_tar(tar)
         if hits:
-            return hits
-    return _scan_dir(task_dir)
+            return _rerank_by_crash_context(hits, task_dir)
+    hits = _scan_dir(task_dir)
+    return _rerank_by_crash_context(hits, task_dir) if hits else hits
 
 
 def _line_no(text: str, needle: str) -> int:

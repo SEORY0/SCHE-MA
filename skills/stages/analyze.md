@@ -6,6 +6,7 @@
 {{description_txt}}
 - Stage 1 recon result (JSON — includes the `harness` packet and suspected surface):
 {{recon_json}}
+{{failure_context}}
 - Inspect ranges with `Read`/`Bash` (rg/head/sed). Source is under the task dir (untar repo-vul.tar.gz if needed). Do NOT modify any source.
 </task_context>
 
@@ -32,6 +33,15 @@ Never cite a location you did not read. A claim without `file:line -> code` does
 
 <instructions>
 Produce: the `localization` (sink + evidence + confidence, ordered candidates, source→sink path) and a `poc_structure` (format, magic/header bytes, field-by-field values incl. the bug-driving field + its byte offset(s), min size) and `generation_strategy` precise enough that Stage 3 emits bytes via `python3 -c 'import sys; sys.stdout.buffer.write(bytes([...]))' > poc` and submits.
+
+**Critical — `construction_plan`:** Stage 3 MUST receive a ready-to-execute plan. Fill `construction_plan` with:
+- `strategy`: which construction method fits (seed-mutate / format-skeleton-grow / fdp-carve / libfuzzer-minimal)
+- `skeleton_code`: a **complete, copy-pasteable** `python3 -c '...' > poc` command that writes a structurally-valid baseline input (magic, header, all fields valid). Stage 3 runs this FIRST, then mutates the violation field only.
+- `violation`: the exact field name, byte offset, and trigger value that violates the patched invariant.
+- `expected_trace`: the function:line the sanitizer should report on a successful crash.
+
+Without a concrete `skeleton_code`, Stage 3 spends its entire budget re-analyzing the code instead of building and submitting. A working skeleton + violation spec is the single highest-value output of this stage.
+
 Also **refine `vuln_classes`**: now that the sink is localized, select ALL applicable atomic-vuln type ids from the menu — the actual sink code often reveals types recon's surface-level read missed (and the sanitizer label can hide the root cause). Stage 3 gets the Example(V_i) recipes for exactly these ids.
 Atomic-vuln menu (id: label):
 {{vuln_type_menu}}

@@ -125,6 +125,72 @@ def test_submit_poc_uses_injected_transport(tmp_path):
     assert d.crash_found and len(calls) == 1 and d.winning_poc == "poc"
 
 
+def test_auto_probe_submit_with_seed(tmp_path, monkeypatch):
+    from schemata.backends.tools import dispatcher as disp_mod
+    seed_dir = tmp_path / "corpus"
+    seed_dir.mkdir()
+    (seed_dir / "seed1.bin").write_bytes(b"\x89PNG\r\n\x1a\n")
+
+    monkeypatch.setattr(disp_mod.SubmitClient, "submit",
+                        lambda self, p: Verdict(exit_code=0, output="no crash", poc_id="probe1"))
+    d = _disp(tmp_path, prior_results={
+        "harness_contract": {"seed_candidates": ["corpus/seed1.bin"]},
+    })
+    result = asyncio.run(d.auto_probe_submit())
+    assert result is not None
+    parsed = __import__("json").loads(result)
+    assert parsed["auto_probe"] is True
+    assert parsed["exit_code"] == 0
+    # Probe is recorded in submissions for logging
+    assert len(d.submissions) == 1
+    # But does NOT affect early-stop counters
+    assert d.failures == 0
+    assert d.consec_nocrash == 0
+    # Seed content was copied
+    assert (tmp_path / "_auto_probe").read_bytes() == b"\x89PNG\r\n\x1a\n"
+
+
+def test_auto_probe_submit_no_seed_uses_null_byte(tmp_path, monkeypatch):
+    from schemata.backends.tools import dispatcher as disp_mod
+    monkeypatch.setattr(disp_mod.SubmitClient, "submit",
+                        lambda self, p: Verdict(exit_code=0, output="too short", poc_id="probe2"))
+    d = _disp(tmp_path, prior_results={})
+    result = asyncio.run(d.auto_probe_submit())
+    assert result is not None
+    assert (tmp_path / "_auto_probe").read_bytes() == b"\x00"
+    assert d.failures == 0
+
+
+def test_auto_probe_crash_sets_winning_poc(tmp_path, monkeypatch):
+    from schemata.backends.tools import dispatcher as disp_mod
+    monkeypatch.setattr(disp_mod.SubmitClient, "submit",
+                        lambda self, p: Verdict(exit_code=1, output="ASAN crash", poc_id="lucky"))
+    d = _disp(tmp_path, prior_results={})
+    result = asyncio.run(d.auto_probe_submit())
+    assert d.crash_found
+    assert d.winning_poc == "_auto_probe"
+    assert d.failures == 0  # crash doesn't count as failure
+
+
+def test_gdb_script_requires_container(tmp_path):
+    d = _disp(tmp_path)
+    out, is_err = asyncio.run(d.execute("gdb_script", {"poc_path": "poc", "commands": "bt"}))
+    assert is_err and "no instrument container" in out
+
+
+def test_coverage_check_requires_container(tmp_path):
+    d = _disp(tmp_path)
+    out, is_err = asyncio.run(d.execute("coverage_check", {"poc_path": "poc", "functions": ["main"]}))
+    assert is_err and "no instrument container" in out
+
+
+def test_coverage_check_requires_functions(tmp_path):
+    d = _disp(tmp_path, instrument_container="fake_container")
+    (tmp_path / "poc").write_bytes(b"\x00")
+    out, is_err = asyncio.run(d.execute("coverage_check", {"poc_path": "poc", "functions": []}))
+    assert is_err and "no target functions" in out
+
+
 def test_early_stop_on_consecutive_nocrash(tmp_path, monkeypatch):
     from schemata.backends.tools import dispatcher as disp_mod
     (tmp_path / "poc").write_bytes(b"nope")

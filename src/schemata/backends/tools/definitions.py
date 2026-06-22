@@ -137,6 +137,45 @@ SUBMIT_POC = {
     },
 }
 
+GDB_SCRIPT = {
+    "name": "gdb_script",
+    "description": (
+        "Run GDB batch commands against the vulnerable binary in the instrument container with "
+        "a PoC file as input. Returns GDB output. Use to: set breakpoints at suspected sink "
+        "functions, trace execution, inspect memory/registers at the crash point. Each command "
+        "is a GDB expression separated by newlines (e.g. 'break vuln_func\\nrun\\nbt')."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "poc_path": {"type": "string", "description": "Path to the PoC file (relative to task dir)."},
+            "commands": {"type": "string", "description": "GDB commands, one per line."},
+        },
+        "required": ["poc_path", "commands"],
+    },
+}
+
+COVERAGE_CHECK = {
+    "name": "coverage_check",
+    "description": (
+        "Check which target functions a PoC input reaches in the vulnerable binary. Provide a "
+        "list of function names to check — the tool sets GDB breakpoints and reports which were "
+        "hit. Use BEFORE submit_poc to verify your input exercises the right code path."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "poc_path": {"type": "string", "description": "Path to the PoC file (relative to task dir)."},
+            "functions": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Function names to check reachability for.",
+            },
+        },
+        "required": ["poc_path", "functions"],
+    },
+}
+
 MCP_CODE_QUERY = {
     "name": "mcp_code_query",
     "description": "Query the pre-built code index for a symbol/function range (Hard repos only). "
@@ -156,7 +195,8 @@ ALL_TOOLS: dict[str, dict] = {
     t["name"]: t
     for t in (
         BASH, READ_FILE, WRITE_FILE, GREP, GLOB, SEMGREP_SCAN,
-        ARVO_COMPILE, ARVO_RUN, SUBMIT_POC, MCP_CODE_QUERY,
+        ARVO_COMPILE, ARVO_RUN, GDB_SCRIPT, COVERAGE_CHECK,
+        SUBMIT_POC, MCP_CODE_QUERY,
     )
 }
 

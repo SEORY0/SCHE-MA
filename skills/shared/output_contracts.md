@@ -40,6 +40,12 @@ Stage "analyze" schema:
   "data_flow": ["input byte -> ... -> crash site"],
   "input_constraints": ["constraint on bytes/fields to reach the bug"],
   "poc_structure": {"format": "string", "header": "hex or desc", "fields": [".."], "min_size": 0, "seed_base": "in-repo seed path or null if synthesized", "mutated_field": "the SINGLE invariant field + its byte offset relative to seed_base"},
+  "construction_plan": {
+    "strategy": "seed-mutate|format-skeleton-grow|fdp-carve|libfuzzer-minimal",
+    "skeleton_code": "complete python3 one-liner that writes a baseline valid PoC file (before violation mutation)",
+    "violation": {"field": "name", "offset": 0, "trigger_value": "hex or int", "why": "invariant the patch adds"},
+    "expected_trace": "function:line the sanitizer should report on success"
+  },
   "instrumentation_findings": "what print/rebuild/local-run revealed (or null)",
   "generation_strategy": "how Stage 3 should build the bytes"
 }

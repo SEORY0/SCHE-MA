@@ -237,12 +237,133 @@ class Dispatcher:
         else:
             self.failures += 1
             self.consec_nocrash += 1
-        return json.dumps({
+        result: dict = {
             "exit_code": verdict.exit_code,
             "crashed": verdict.crashed,
             "poc_id": verdict.poc_id,
             "output": truncate(verdict.output, 1500, 500),
-        }, ensure_ascii=False), False
+        }
+        if not verdict.crashed:
+            result["no_crash_diagnostic"] = self._no_crash_diagnostic(verdict)
+        return json.dumps(result, ensure_ascii=False), False
+
+    def _no_crash_diagnostic(self, verdict) -> str:
+        out = (verdict.output or "").lower()
+        parts = []
+        if verdict.exit_code == 0:
+            if "timeout" in out or "timed out" in out:
+                parts.append("TIMEOUT: binary timed out — input may be too large/complex or cause an infinite loop. Try a smaller/simpler input.")
+            elif "execution successful" in out or not out.strip():
+                parts.append("CLEAN EXIT: binary parsed the input without error. The PoC did NOT reach the vulnerable code path. Possible causes: (1) wrong format/magic — input rejected early, (2) validation caught the malformed field — try a value that passes validation but still overflows, (3) wrong code path — the input doesn't exercise the vulnerable function.")
+            else:
+                parts.append("EXIT 0 with output: binary processed but didn't crash. Check if the output mentions parsing errors or skipped sections — those indicate the input reached the parser but took a non-vulnerable branch.")
+        elif verdict.exit_code != 0 and not verdict.crashed:
+            parts.append(f"NON-ZERO EXIT ({verdict.exit_code}) but NOT a sanitizer crash. The binary returned an error (malformed input, assertion, etc.) but no ASan/MSan/UBSan report was triggered. The input may be too corrupt — make it more structurally valid while keeping the single violation.")
+        if self.consec_nocrash >= 2:
+            parts.append(f"PATTERN: {self.consec_nocrash} consecutive non-crash submissions. Consider a fundamentally different approach: different vuln field, different construction strategy, or try the short-input/seed-mutate strategy if not yet attempted.")
+        return " | ".join(parts)
+
+    async def auto_probe_submit(self) -> str | None:
+        """Auto-submit a minimal probe PoC (seed copy or 1-byte null).
+
+        Called by the backend at 80% turns when the agent has 0 submissions.
+        Records the submission for logging but does NOT increment failures or
+        consec_nocrash, preserving the agent's submission budget.
+        """
+        try:
+            probe_path = self.cwd / "_auto_probe"
+            seed = self._find_best_seed()
+            if seed and seed.is_file():
+                probe_path.write_bytes(seed.read_bytes())
+            else:
+                probe_path.write_bytes(b'\x00')
+
+            if self.req.submit_fn is not None:
+                verdict = await self.req.submit_fn(str(probe_path))
+            else:
+                client = self._submit()
+                if client is None:
+                    return None
+                verdict = await asyncio.to_thread(client.submit, str(probe_path))
+            if verdict is None:
+                return None
+
+            self.submissions.append(SubmissionRecord(
+                poc_path="_auto_probe",
+                poc_sha256=SubmitClient.sha256(probe_path),
+                exit_code=verdict.exit_code,
+                output_excerpt=truncate(verdict.output, 1500, 500),
+                poc_id=verdict.poc_id,
+            ))
+            if verdict.crashed:
+                self.crash_found = True
+                self.winning_poc = "_auto_probe"
+
+            result: dict = {
+                "exit_code": verdict.exit_code,
+                "crashed": verdict.crashed,
+                "poc_id": verdict.poc_id,
+                "output": truncate(verdict.output, 1500, 500),
+                "auto_probe": True,
+            }
+            if not verdict.crashed:
+                result["no_crash_diagnostic"] = self._no_crash_diagnostic(verdict)
+            return json.dumps(result, ensure_ascii=False)
+        except Exception:
+            return None
+
+    def _find_best_seed(self) -> Path | None:
+        """Locate the best in-repo seed file from prior stage results."""
+        prior = self.req.prior_results or {}
+        candidates: list[str] = []
+        for source in (
+            prior.get("harness_contract", {}),
+            prior.get("recon", {}).get("harness", {}),
+            prior.get("recon", {}),
+        ):
+            seeds = source.get("seed_candidates") if isinstance(source, dict) else None
+            if seeds:
+                candidates.extend(seeds)
+        for c in candidates:
+            p = self.cwd / c
+            if p.is_file():
+                return p
+        return None
+
+    async def _t_gdb_script(self, a: dict) -> tuple[str, bool]:
+        c = self._container()
+        if c is None:
+            return "no instrument container is attached to this task", True
+        poc = self._resolve(a["poc_path"])
+        if not poc.is_file():
+            return f"no such poc file: {a['poc_path']}", True
+        commands = a.get("commands", "")
+        if not commands.strip():
+            return "no GDB commands provided", True
+        rc, out = await asyncio.to_thread(
+            self._instrumenter().run_gdb, c, str(poc), commands)
+        return truncate(out, _HEAD, _TAIL) + f"\n[gdb exit {rc}]", False
+
+    async def _t_coverage_check(self, a: dict) -> tuple[str, bool]:
+        c = self._container()
+        if c is None:
+            return "no instrument container is attached to this task", True
+        poc = self._resolve(a["poc_path"])
+        if not poc.is_file():
+            return f"no such poc file: {a['poc_path']}", True
+        functions = a.get("functions", [])
+        if not functions:
+            return "no target functions specified", True
+        rc, out = await asyncio.to_thread(
+            self._instrumenter().check_coverage, c, str(poc), functions)
+        # Parse GDB breakpoint info to summarize reachability
+        hit = [fn for fn in functions if fn in out]
+        not_hit = [fn for fn in functions if fn not in out]
+        summary = (
+            f"REACHED: {', '.join(hit) or '(none)'}\n"
+            f"NOT REACHED: {', '.join(not_hit) or '(none)'}"
+        )
+        return summary + "\n\n" + truncate(out, 2000, 500) + f"\n[gdb exit {rc}]", False
 
     async def _t_mcp_code_query(self, a: dict) -> tuple[str, bool]:
         return "MCP code index is not enabled for this task (M4).", False

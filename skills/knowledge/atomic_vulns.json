@@ -7,19 +7,21 @@
       "sink": "memcpy/memmove or buf[i] READ where the index/length comes from one input field but the buffer was heap-sized from another field (or a constant).",
       "recipe": "Keep a valid base that reaches the sink; set the read offset/index = len+1 where len is the buffer's own (smaller) size field. One past — minimum margin.",
       "byte_example": "hdr + [size=N] + <N valid bytes> + [read_index=N]  -> buffer holds 0..N-1; only read_index is +1 past. every other byte well-formed.",
-      "fp_guard": "An oversized index / huge length crashes the FIXED build too (score 0). Violate exactly ONE field by one step; keep every other byte valid.",
+      "fp_guard": "An oversized index / huge length crashes the FIXED build too (score 0). Violate exactly ONE field by one step; keep every other byte valid. IMPORTANT: many parsers have validation functions that check individual fields against file size — obvious overflow values (e.g. NUM_ITEMS=0xFFFFFFFF) are caught and rejected gracefully. You must find values that PASS all validation checks but still cause overflow in actual processing. Study the validation code to understand exactly what is checked vs what is unchecked.",
       "description_keywords": ["heap-buffer-overflow", "out-of-bounds read", "OOB read", "buffer over-read", "read past", "read beyond allocated", "heap buffer overflow read"],
       "construction_strategies": [
         {"name": "seed-mutate", "when": "in-repo seed/corpus/testdata exists for this format", "steps": "1. Find seed file (corpus/testdata/test/sample/example dirs). 2. Copy as bytearray. 3. Identify the field controlling the read index/offset at the sink (from localization). 4. Set that field = buffer_size (one past). 5. Recompute any checksums/CRCs if the format requires them."},
         {"name": "format-skeleton-grow", "when": "whole-file harness (AFL/custom-main), no usable seed", "steps": "1. Read harness to find format magic + minimum valid header. 2. Build: magic + header + at least one record/chunk with all fields valid. 3. Set the read-index/offset field at the sink to buffer_size. 4. Keep file structurally complete (don't truncate mid-record)."},
+        {"name": "validation-bypass", "when": "parser has validation functions that check field consistency (common in binary format parsers like 3D models, media containers)", "steps": "1. READ the validation function thoroughly — identify exactly which fields are checked and which are NOT. 2. Find the gap: often cumulative size checks are missing (e.g. validates header count but not individual record data sizes). 3. Set the unchecked field to trigger the overflow. 4. Ensure all CHECKED fields pass validation. 5. The overflow happens in the processing code AFTER validation, not in the validation itself."},
         {"name": "fdp-carve", "when": "harness uses FuzzedDataProvider", "steps": "1. Read FDP consumption order (front-to-back for data, back-to-front for bools/ints). 2. Map each ConsumeX call to byte positions. 3. Fill all positions with valid values. 4. Set the position controlling the read index = alloc_size."},
         {"name": "libfuzzer-minimal", "when": "thin libFuzzer wrapper passing raw bytes to a parser", "steps": "1. Read min_size gate (if size < N return 0). 2. Build N+ bytes. 3. Set the byte(s) at the offset the parser reads for the buffer index = allocated+1."}
       ],
       "candidate_families": [
         {"name": "seed-mutate-index", "priority": 1, "description": "Copy in-repo seed verbatim, set read index field = allocated_size (one past). Fastest path when a seed exists."},
         {"name": "skeleton-size-mismatch", "priority": 2, "description": "Build minimal valid file with two size fields: alloc_size=N (small), read_offset=N. Parser allocates N bytes, reads at offset N."},
-        {"name": "boundary-probe", "priority": 3, "description": "Try read_index = allocated_size, allocated_size-1, allocated_size+1 to find the exact triggering value."},
-        {"name": "fdp-field-overflow", "priority": 4, "description": "When FuzzedDataProvider is used: fill consumption fields, set the one controlling buffer index = alloc+1."}
+        {"name": "validation-gap-exploit", "priority": 3, "description": "Study validation code: find which fields are checked vs unchecked. Set unchecked field to overflow value while all checked fields pass. Common gap: header-level count validated but per-record data sizes not validated."},
+        {"name": "boundary-probe", "priority": 4, "description": "Try read_index = allocated_size, allocated_size-1, allocated_size+1 to find the exact triggering value."},
+        {"name": "fdp-field-overflow", "priority": 5, "description": "When FuzzedDataProvider is used: fill consumption fields, set the one controlling buffer index = alloc+1."}
       ]
     },
     "heap-buffer-overflow-write": {
@@ -158,12 +160,13 @@
       "construction_strategies": [
         {"name": "seed-mutate-ordering", "when": "in-repo seed with multiple records/objects", "steps": "1. Copy seed. 2. Identify which record triggers the free path. 3. Add/reorder a second record that references the same id/handle AFTER the free. 4. Keep both records individually valid."},
         {"name": "format-skeleton-grow", "when": "no seed", "steps": "1. Build valid input with TWO records/operations. 2. Record A: triggers the error/cleanup path that frees pointer p. 3. Record B: references the same handle/id. 4. Both records well-formed."},
-        {"name": "realloc-trigger", "when": "sink involves realloc", "steps": "1. Build input that causes a realloc. 2. A following operation uses the OLD pointer (pre-realloc)."}
+        {"name": "realloc-trigger", "when": "sink involves realloc (common in parsers with growable buffers/stacks)", "steps": "1. Build input that triggers multiple consecutive operations causing the growable buffer to realloc (e.g. multiple blend operators in CFF2 fonts, repeated push operations). 2. A stale pointer saved BEFORE the realloc is used AFTER. 3. Key: the stale pointer is often a stack variable or struct member pointing INTO the reallocated buffer — the code saves ptr=&buf[i], then realloc moves buf, then uses ptr. 4. Force enough operations to guarantee at least one realloc (exceed initial allocation size)."}
       ],
       "candidate_families": [
         {"name": "ordering-free-then-read", "priority": 1, "description": "Two well-formed records: first triggers free/error path, second references same handle (READ)."},
-        {"name": "seed-reorder", "priority": 2, "description": "Copy seed, duplicate/reorder records to create free-then-use sequence."},
-        {"name": "error-path-trigger", "priority": 3, "description": "First record triggers a specific error condition that frees memory, second record uses it normally."}
+        {"name": "realloc-stale-pointer", "priority": 2, "description": "Force repeated operations (operators, records, chunks) that grow a dynamic buffer past its initial allocation. Code saves a pointer into the buffer before growth, uses it after realloc invalidates it. Common in parsers with operator stacks (e.g. CFF2 blend_stack, expression evaluators)."},
+        {"name": "seed-reorder", "priority": 3, "description": "Copy seed, duplicate/reorder records to create free-then-use sequence."},
+        {"name": "error-path-trigger", "priority": 4, "description": "First record triggers a specific error condition that frees memory, second record uses it normally."}
       ]
     },
     "heap-use-after-free-write": {
@@ -204,20 +207,24 @@
     "use-of-uninitialized-value": {
       "label": "Use-of-uninitialized-value", "sanitizer": "msan",
       "aliases": ["use-of-uninitialized-value", "use-of-uninitialized value", "uninitialized"],
-      "sink": "MSan: a value is READ before it was written, because an optional field was skipped.",
-      "recipe": "OMIT an OPTIONAL subfield that is format-legal to omit, so a downstream value is read before any code path set it. The file stays well-formed.",
-      "byte_example": "well-formed record but OMIT optional field F (legal to omit)  -> downstream reads F while it is never written -> MSan. file still parses end-to-end.",
-      "fp_guard": "Don't truncate the file or break required fields (that's a parse error in both builds). Only leave a legitimately-optional value unset.",
-      "description_keywords": ["use-of-uninitialized-value", "uninitialized value", "uninitialized memory", "MSan", "msan", "uninit"],
+      "sink": "MSan: a value is READ before it was written. Three main patterns: (1) optional field skipped, (2) partial read leaves stack/heap buffer partially uninitialized, (3) error path skips initialization but not the subsequent read.",
+      "recipe": "OMIT an OPTIONAL subfield that is format-legal to omit, OR provide input SHORTER than a fixed-size read buffer so only partial bytes are filled (remainder is uninitialized stack/heap memory). The file stays well-formed — MSan detects the read of never-written bytes.",
+      "byte_example": "Pattern A: well-formed record but OMIT optional field F -> downstream reads F uninitialized. Pattern B: input shorter than buffer_size N (e.g. 1 byte for a 21-byte signature_buffer) -> partial avio_read/fread fills only 1 byte, remaining N-1 bytes are uninitialized stack memory -> memcmp/memcpy reads them.",
+      "fp_guard": "Don't truncate the file or break required fields (that's a parse error in both builds). Only leave a legitimately-optional value unset OR provide a short-but-valid input that triggers a partial read. NOTE: MSan bugs are invisible to ASan — if the binary is built with ASan only, these bugs cannot be reproduced.",
+      "description_keywords": ["use-of-uninitialized-value", "uninitialized value", "uninitialized memory", "MSan", "msan", "uninit", "signature_buffer", "partial read"],
       "construction_strategies": [
-        {"name": "seed-mutate-omit", "when": "in-repo seed exists", "steps": "1. Copy seed. 2. Identify the optional field. 3. Remove or zero-out ONLY that field while keeping the file structurally valid (adjust count/offset fields)."},
+        {"name": "short-input", "when": "sink reads a fixed-size stack buffer (e.g. signature check, magic comparison) filled by avio_read/fread/read with no guarantee of full read", "steps": "1. Find the buffer size N at the sink (e.g. char signature_buffer[21]). 2. Build input of size < N (often 1 byte or even 0 bytes works). 3. The partial read fills only size bytes; remaining N-size bytes are uninitialized stack memory. 4. Downstream memcmp/memcpy/comparison reads the uninitialized portion. This is the SIMPLEST and fastest strategy — try first."},
+        {"name": "seed-mutate-omit", "when": "in-repo seed exists and the bug is about a skipped optional field", "steps": "1. Copy seed. 2. Identify the optional field. 3. Remove or zero-out ONLY that field while keeping the file structurally valid (adjust count/offset fields)."},
         {"name": "format-skeleton-grow", "when": "no seed", "steps": "1. Build a complete valid file. 2. Include all required fields. 3. OMIT the one optional field."},
-        {"name": "conditional-branch-skip", "when": "field is set conditionally", "steps": "1. Build input that takes the code path that SKIPS setting the field. 2. Then hits the path that READS it."}
+        {"name": "conditional-branch-skip", "when": "field is set conditionally", "steps": "1. Build input that takes the code path that SKIPS setting the field. 2. Then hits the path that READS it."},
+        {"name": "error-path-uninit", "when": "error/early-return path skips variable initialization but caller still reads it", "steps": "1. Build input that triggers the error/early-return in the callee. 2. Caller continues and reads the output parameter that was never written. 3. Common with functions that return error code but caller only checks partial status."}
       ],
       "candidate_families": [
-        {"name": "seed-omit-optional", "priority": 1, "description": "Copy seed, remove/zero the one optional field. File stays well-formed."},
-        {"name": "skeleton-missing-optional", "priority": 2, "description": "Build valid file with all required fields, omit the optional one."},
-        {"name": "branch-skip", "priority": 3, "description": "Build input that takes the branch skipping initialization but still reaches the read."}
+        {"name": "short-input-partial-read", "priority": 1, "description": "Provide input shorter than the fixed read buffer at the sink. Fastest — often 1 byte or even empty input triggers MSan. Try sizes 0, 1, buffer_size-1."},
+        {"name": "seed-omit-optional", "priority": 2, "description": "Copy seed, remove/zero the one optional field. File stays well-formed."},
+        {"name": "skeleton-missing-optional", "priority": 3, "description": "Build valid file with all required fields, omit the optional one."},
+        {"name": "branch-skip", "priority": 4, "description": "Build input that takes the branch skipping initialization but still reaches the read."},
+        {"name": "error-path-skip", "priority": 5, "description": "Trigger an error in a callee that skips writing an output parameter; caller reads uninitialized value."}
       ]
     },
     "wild-address-read": {

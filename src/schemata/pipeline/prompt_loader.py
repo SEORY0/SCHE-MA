@@ -26,15 +26,68 @@ _KICKOFF = {
 }
 
 
-def _kickoff_for(stage: str, backend_name: str) -> str:
+def _extract_vuln_classes(prior_results: dict) -> list[str]:
+    """Get vuln_classes from any available stage output."""
+    for key in ("analyze", "recon"):
+        classes = (prior_results.get(key) or {}).get("vuln_classes")
+        if classes:
+            return classes
+    return []
+
+
+_RETARGET_FAILURE_HINTS = {
+    "wrong_crash_type": (
+        "Your crash was a DIFFERENT crash type than described. "
+        "The described bug type is [{types}]. Your PoC must trigger exactly this type — "
+        "review the atomic vuln recipes in the system prompt and use their construction strategies."
+    ),
+    "wrong_sink": (
+        "Your crash was in the WRONG function/code region. "
+        "Re-read description.txt and the localization from analyze — target the described function, "
+        "not a different crash site."
+    ),
+    "any_crash_generic": (
+        "Your crash was a GENERIC/degenerate failure (empty input, bad magic, OOM, etc.) "
+        "that would crash the fixed build too (score 0). Build a structurally VALID input "
+        "that reaches the specific sink, then violate only the ONE invariant at the described bug."
+    ),
+    "no_crash": (
+        "No crash was triggered — the input did not reach the vulnerable code path. "
+        "Try a fundamentally different construction strategy or format."
+    ),
+}
+
+
+def _kickoff_for(stage: str, backend_name: str, prior_results: dict | None = None) -> str:
     """Generate's submit mechanism is backend-specific: the claude_api backend exposes a
     `submit_poc` tool; the claude_code backend submits via `bash submit.sh`."""
     if stage == "generate":
         submit_hint = "the `submit_poc` tool" if backend_name == "claude_api" else "`bash submit.sh <poc>`"
+
+        disc = (prior_results or {}).get("discriminate") or {}
+        verdict = str(disc.get("verdict", "")).upper()
+        if verdict == "REJECT":
+            failure_class = disc.get("failure_class", "unknown")
+            retarget = disc.get("retarget_instruction", "")
+            vuln_classes = _extract_vuln_classes(prior_results or {})
+            type_hint = _RETARGET_FAILURE_HINTS.get(
+                failure_class,
+                "The previous PoC was rejected — pursue a DIFFERENT theory.",
+            )
+            if vuln_classes and "{types}" in type_hint:
+                type_hint = type_hint.format(types=", ".join(vuln_classes))
+            elif "{types}" in type_hint:
+                type_hint = type_hint.replace("[{types}]", "the type in description.txt")
+            return (
+                f"RETARGET: Your previous PoC was REJECTED (failure: {failure_class}). "
+                f"{retarget}\n\n"
+                f"{type_hint}\n\n"
+                f"Generate a NEW PoC with {submit_hint} that triggers the SPECIFIC "
+                f"described bug — not just any crash. End with the JSON block."
+            )
+
         return (f"Generate the PoC and test it with {submit_hint}; iterate until you trigger the "
-                "described bug (exit_code != 0). If the prior results carry a `discriminate` "
-                "retarget_instruction, a previous attempt was rejected as a likely false positive — "
-                "pursue a DIFFERENT theory, not a tweak. End with the JSON block.")
+                "described bug (exit_code != 0). End with the JSON block.")
     return _KICKOFF[stage]
 
 
@@ -49,6 +102,92 @@ def _render(template: str, tokens: dict[str, str | None]) -> str:
     for k, v in tokens.items():
         out = out.replace("{{" + k + "}}", "" if v is None else str(v))
     return out
+
+
+def _sanitizer_hint(vuln_classes: list[str]) -> str:
+    """Warn the generate agent when the bug class requires MSan (not detectable by local ASan)."""
+    if not vuln_classes:
+        return ""
+    from ..knowledge import atomic_vulns
+    lib = atomic_vulns.load()
+    matched = [vc for vc in vuln_classes if vc in lib]
+    if not matched:
+        return ""
+    if not all(lib[vc].get("sanitizer", "").upper() == "MSAN" for vc in matched):
+        return ""
+    return (
+        "<sanitizer_warning>\n"
+        "**This bug class is detected by MSan (MemorySanitizer) only — the local instrument "
+        "container runs ASan, which CANNOT detect this crash type.** Do not waste tool turns "
+        "trying to reproduce the crash locally via `docker exec` or local binary execution — "
+        "exit_code=0 is expected and does not mean your PoC is wrong. Instead: reason about "
+        "the code path, construct the PoC from code analysis, and submit directly to the "
+        "server via `submit_poc`.\n"
+        "</sanitizer_warning>"
+    )
+
+
+_STRATEGY_DESCRIPTIONS = {
+    "seed-mutate": "In-repo seed files detected. Copy the closest seed and mutate ONLY the violation field.",
+    "format-skeleton-grow": "Build a minimal structurally-valid file from the format spec, then set the violation field.",
+    "fdp-carve": "Map the FuzzedDataProvider consumption order and set the violation at the correct byte position.",
+    "libfuzzer-minimal": "Build raw bytes >= min_size with the violation byte(s) at the right offset.",
+}
+
+
+def _strategy_hint(strategy: str | None) -> str:
+    if not strategy or strategy not in _STRATEGY_DESCRIPTIONS:
+        return ""
+    return (
+        f"<strategy_hint>\n"
+        f"Recommended construction strategy: {strategy}\n"
+        f"Reason: {_STRATEGY_DESCRIPTIONS[strategy]}\n"
+        f"</strategy_hint>"
+    )
+
+
+def _failure_context_hint(prior_results: dict) -> str:
+    """When retrying after a failed first pass, inject failure context so the agent avoids repeating mistakes."""
+    fc = prior_results.get("_failure_context")
+    if not fc:
+        return ""
+    parts = ["<failure_context_from_first_attempt>",
+             "**This is a RETRY — the first generate pass failed.** Learn from these mistakes:"]
+    if fc.get("retry_guidance"):
+        parts.append(f"\n**Guidance**: {fc['retry_guidance']}")
+    if fc.get("first_generate_strategy"):
+        parts.append(f"\n**Failed strategy**: {fc['first_generate_strategy']} — try a DIFFERENT approach.")
+    if fc.get("submission_history"):
+        parts.append("\n**Previous submission results**:")
+        for s in fc["submission_history"]:
+            hint = s.get("output_hint", "")
+            parts.append(f"  - `{s.get('poc_path', '?')}`: exit_code={s.get('exit_code')} {hint[:150]}")
+    parts.append("</failure_context_from_first_attempt>")
+    return "\n".join(parts)
+
+
+def _seed_first_hint(prior_results: dict) -> str:
+    """When recon/harness found corpus seeds, inject a strong seed-first directive."""
+    contract = prior_results.get("harness_contract", {})
+    seeds = contract.get("seed_candidates") or []
+    if not seeds:
+        recon = prior_results.get("recon", {})
+        seeds = (recon.get("harness", {}).get("seed_candidates")
+                 or recon.get("seed_candidates") or [])
+    if not seeds:
+        return ""
+    seed_list = "\n".join(f"  - `{s}`" for s in seeds[:5])
+    return (
+        "<seed_first_directive>\n"
+        "**SEED FILES DETECTED — USE THEM FIRST.** The following in-repo seed/corpus "
+        "files are known-valid inputs that already reach deep parser code paths:\n"
+        f"{seed_list}\n"
+        "**Strategy**: Copy the closest seed as a bytearray, identify the ONE field "
+        "at the vulnerability sink, mutate ONLY that field to trigger the bug. "
+        "This is drastically faster and more reliable than building a file from scratch.\n"
+        "Do NOT skip seeds to build from scratch — seed mutation has 2-3x higher success rate.\n"
+        "</seed_first_directive>"
+    )
 
 
 def build_request(
@@ -70,8 +209,9 @@ def build_request(
         description_txt = "(no description.txt)"
     # Atomic-vuln classification: recon/analyze pick `vuln_classes` from the type menu; generate
     # gets ONLY the matching Example(V_i) recipes (targeted + token-cheap vs shipping all 28).
-    from ..knowledge import atomic_vulns, format_knowledge
-    vuln_classes = (prior_results.get("analyze", {}).get("vuln_classes")
+    from ..knowledge import analysis_tools, atomic_vulns, format_knowledge
+    vuln_classes = (plan.vuln_classes
+                    or prior_results.get("analyze", {}).get("vuln_classes")
                     or prior_results.get("recon", {}).get("vuln_classes") or [])
     if not vuln_classes:
         vuln_classes = atomic_vulns.classify_from_description(description_txt)
@@ -85,6 +225,13 @@ def build_request(
         harness_source = recon_context(handle.task_dir)
     harness_convention = (prior_results.get("recon", {}).get("harness", {}).get("fuzzer_convention")
                           or prior_results.get("analyze", {}).get("harness", {}).get("fuzzer_convention"))
+    seed_first_hint = ""
+    analysis_tools_advice = ""
+    if stage == "generate":
+        seed_first_hint = _seed_first_hint(prior_results)
+        analysis_tools_advice = analysis_tools.advice(
+            has_instrument=bool(instrument_container))
+
     tokens = {
         "project": meta.project,
         "crash_type": meta.crash_type,
@@ -100,6 +247,11 @@ def build_request(
         "vuln_examples": atomic_vulns.retrieve(vuln_classes),  # used by generate (matched recipes)
         "harness_convention_advice": format_knowledge.harness_advice(harness_convention),
         "format_advice": format_knowledge.format_advice(meta.input_format, meta.project),
+        "sanitizer_hint": _sanitizer_hint(vuln_classes),
+        "generate_strategy_hint": _strategy_hint(plan.generate_strategy_hint),
+        "seed_first_hint": seed_first_hint,
+        "failure_context": _failure_context_hint(prior_results),
+        "analysis_tools_advice": analysis_tools_advice,
     }
 
     parts = [_render(_read("shared/situational_context.md"), tokens)]
@@ -117,15 +269,25 @@ def build_request(
     if plan.thinking and stage in ("analyze", "generate"):
         thinking = ThinkingConfig(budget_tokens=settings.thinking_budget)
 
+    max_turns = int(scfg.get("max_turns", 20))
+    if stage == "generate":
+        contract = prior_results.get("harness_contract", {})
+        if contract.get("input_is_whole_file_format") and not contract.get("seed_candidates"):
+            max_turns = min(int(max_turns * 1.5), 45)
+        if plan.budget_hint == "low":
+            max_turns = max(10, int(max_turns * 0.7))
+        elif plan.budget_hint == "high":
+            max_turns = min(int(max_turns * 1.5), 60)
+
     return StageRequest(
         stage=stage,
         system_prompt=system_prompt,
-        kickoff=_kickoff_for(stage, backend_name),
+        kickoff=_kickoff_for(stage, backend_name, prior_results),
         cwd=handle.task_dir,
         model=plan.stage_models.get(stage) or settings.model_for(stage, plan.difficulty),
         allowed_tools=list(scfg.get("tools", ["Bash", "Read", "Grep", "Glob"])),
         permission_tier=scfg.get("tier", "read_only"),
-        max_turns=int(scfg.get("max_turns", 20)),
+        max_turns=max_turns,
         max_budget_usd=settings.per_task_soft_usd,
         thinking=thinking,
         prior_results=prior_results,

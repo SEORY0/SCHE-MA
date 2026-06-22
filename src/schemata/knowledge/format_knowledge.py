@@ -40,6 +40,8 @@ _PROJECT_TO_FORMAT: dict[str, str] = {
     "libjpeg-turbo": "raster-image",
     "openjpeg": "raster-image",
     "libheif": "mp4-isobmff",
+    "assimp": "3d-model",
+    "open3mod": "3d-model",
 }
 
 _INPUT_FORMAT_TO_FORMAT: dict[str, str] = {
@@ -87,6 +89,15 @@ _INPUT_FORMAT_TO_FORMAT: dict[str, str] = {
     "dwarf": "dwarf-debug",
     "blosc": "dwarf-debug",
     "blosc2": "dwarf-debug",
+    "md3": "3d-model",
+    "md2": "3d-model",
+    "mdl": "3d-model",
+    "obj": "3d-model",
+    "stl": "3d-model",
+    "ply": "3d-model",
+    "heif": "mp4-isobmff",
+    "heic": "mp4-isobmff",
+    "mve": "media-container",
 }
 
 
@@ -128,7 +139,32 @@ def harness_advice(convention: str | None) -> str:
         lines.append("**FDP consumption patterns** (if FuzzedDataProvider is used):")
         for method, layout in entry["fdp_patterns"].items():
             lines.append(f"  - `{method}`: {layout}")
+    if entry.get("subtypes"):
+        for sname, sval in entry["subtypes"].items():
+            lines.append(f"**Subtype `{sname}`**: {sval.get('input_contract', '')}")
+            if sval.get("poc_shape"):
+                lines.append(f"  PoC shape: {sval['poc_shape']}")
+            for bp in sval.get("bug_patterns", []):
+                lines.append(f"  - Bug pattern: {bp}")
     lines.append("</harness_convention>")
+    return "\n".join(lines)
+
+
+def sanitizer_advice(crash_type: str | None) -> str:
+    """Render sanitizer notes when the crash type hints at a non-ASan sanitizer."""
+    if not crash_type:
+        return ""
+    ct = crash_type.lower()
+    with open(_HARNESS_PATH, encoding="utf-8") as f:
+        data = json.load(f)
+    notes = data.get("sanitizer_notes")
+    if not notes:
+        return ""
+    lines = []
+    if "uninitialized" in ct or "msan" in ct:
+        lines.append(f"<sanitizer_note type=\"msan\">\n{notes['msan']}\n{notes['detection_hints']}\n</sanitizer_note>")
+    elif "undefined" in ct or "missing return" in ct or "ubsan" in ct:
+        lines.append(f"<sanitizer_note type=\"ubsan\">\n{notes['ubsan']}\n{notes['detection_hints']}\n</sanitizer_note>")
     return "\n".join(lines)
 
 

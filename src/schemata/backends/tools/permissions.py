@@ -36,7 +36,7 @@ def tools_for(req: StageRequest) -> list[dict]:
     if tier in ("write", "full"):
         names.append("write_file")
     if req.instrument_container:
-        names += ["arvo_compile", "arvo_run"]
+        names += ["arvo_compile", "arvo_run", "gdb_script", "coverage_check"]
     if tier == "full":
         names.append("submit_poc")
     if req.mcp_endpoint:
