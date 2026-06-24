@@ -8,12 +8,12 @@ timestamp: 2026-06-24T00:00:00Z
 okf_support: 4
 ---
 ## What
-Build a structurally-valid input declaratively (the `construct` library for binary containers, or raw
+Build a structurally-valid input declaratively (`construct` for binary containers, or raw
 `struct.pack`/templates for flat/text formats), then violate exactly one field.
 
 ## When
-No usable seed, and the format is a nested/chunked/box container (PNG/MNG, RIFF, ISOBMFF, fonts, PDF
-content streams) where hand-counting offsets is error-prone.
+No usable seed, and the format is a nested/chunked/box container (PNG/MNG, PDF content streams, …)
+where hand-counting offsets is error-prone.
 
 ## Steps
 1. Declare the skeleton with `construct` (use `Rebuild(Int32xb, len_(this.data))` so lengths auto-compute).
@@ -24,7 +24,7 @@ content streams) where hand-counting offsets is error-prone.
 
 ## Pitfalls
 - Keep the prefix valid — decoders bail on bad magic/first record before reaching the sink.
-- Only the violation field should be "wrong"; an over-corrupt input crashes the fix too.
+- Only the violation field should be "wrong"; an over-corrupt input crashes the fix too (score 0).
 
 ## Observed
 - Support: 4 train-set solves.

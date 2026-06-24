@@ -15,30 +15,29 @@ A chunk stream follows the 8-byte signature.
 ## Structure
 Repeated chunks, each: `length(4, BE)` + `type(4 ASCII)` + `data(length bytes)` + `crc(4, BE)`.
 - `length` counts ONLY the data, not type/crc.
-- CRC is almost always **unchecked** by decoders → set it to 0.
+- CRC is almost always **unchecked** by the decoder → set it to 0.
 - PNG order: IHDR (13B) first, then PLTE/IDAT/…/IEND. MNG: MHDR (≥16B, usually 28B) first.
-- IHDR data: width(4) height(4) bitdepth(1) colortype(1) compression(1) filter(1) interlace(1).
 
-## Where bugs hide
-- A chunk handler reads N bytes from `data` but only checks `length > 0` (not `length >= N`)
-  → short chunk causes an over-read (e.g. the MNG LOOP/`mng_get_long` family).
-- Per-chunk integer fields (counts, offsets, palette sizes) used without bounds checks.
-- Width*height*bpp multiplication overflow sizing a row/image buffer.
+## Where bugs hide (observed)
+- A chunk handler reads a fixed number of bytes from `data` but only checks `length > 0` (not
+  `length >= N`) → a short chunk causes an over-read. (Real pattern: an MNG `LOOP` chunk handler
+  read a 4-byte integer from the chunk after only checking `length > 0`; a 1-byte `LOOP` chunk
+  then reads 3 bytes past the heap allocation.)
 
 ## How to build (use the `construct` tool)
 ```python
 from construct import Struct, Int32ub, Bytes, this, Rebuild, len_
 Chunk = Struct("length"/Rebuild(Int32ub, len_(this.data)), "ctype"/Bytes(4),
                "data"/Bytes(this.length), "crc"/Int32ub)
-sig = b"\x89PNG\r\n\x1a\n"
-ihdr = Chunk.build(dict(ctype=b"IHDR", data=bytes(13), crc=0))
-poc  = sig + ihdr + Chunk.build(dict(ctype=b"<buggy>", data=b"\x00", crc=0))  # short -> over-read
+sig = b"\x8aMNG\r\n\x1a\n"
+mhdr = Chunk.build(dict(ctype=b"MHDR", data=bytes(28), crc=0))     # valid 28-byte header
+poc  = sig + mhdr + Chunk.build(dict(ctype=b"LOOP", data=b"\x00", crc=0))  # 1-byte -> over-read
 ```
-Keep every field valid EXCEPT the one length/count that violates the just-added check.
+Keep every field valid EXCEPT the one length/count that violates the just-added check; CRC=0 is fine.
 
 ## Seeds & reachability
-In-repo `*.png`/`*.mng` corpus is common → seed-mutate first. To reach a late chunk handler,
-keep a valid IHDR/MHDR prefix; many decoders bail on a bad signature or first chunk.
+In-repo `*.png`/`*.mng` corpus is common → seed-sweep / seed-mutate first. To reach a late chunk
+handler, keep a valid signature + first header chunk; decoders bail early on a bad prefix.
 
 # Examples
 - Support: 2 train-set solves.

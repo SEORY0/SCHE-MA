@@ -3,37 +3,34 @@ type: format-family
 title: json format
 description: Structure, build skeleton, and bug-prone areas of the json input format.
 resource: cybergym://format/json
-tags: [json, gltf, geojson]
+tags: [json, gltf, geojson, opcua]
 timestamp: 2026-06-24T00:00:00Z
 okf_support: 1
 ---
 # Schema
 ## Identification
-Text JSON (also the carrier for glTF, GeoJSON, OPC-UA JSON, many config fuzzers). No magic.
-Often parsed by rapidjson/jsmn/nlohmann or a hand-rolled recursive-descent parser.
+Text JSON (also the carrier for OPC-UA JSON, glTF, config fuzzers). No magic. Parsed by rapidjson/
+jsmn/nlohmann or a hand-rolled recursive-descent decoder.
 
 ## Structure
-Values: object `{ "k": v }`, array `[ v, … ]`, string, number, `true`/`false`/`null`. Nesting is
-arbitrary depth.
+Values: object `{ "k": v }`, array `[ v, … ]`, string, number, `true`/`false`/`null`. Arbitrary nesting.
 
-## Where bugs hide
-- **Recursion depth not bounded**: a deeply nested document (`[[[[…]]]]` or `{"a":{"a":…}}`) blows
-  the parser/encoder/visitor stack → stack-overflow. Many recursive parsers lack an iterative mode.
-- Application-level index fields (glTF accessor/bufferView/node indices) used without range checks.
-- Number parsing (very long/huge exponents) and surrogate handling in strings.
+## Where bugs hide (observed)
+- **Recursion depth not bounded** during DECODE: a deeply nested document blows the parser stack
+  → stack-overflow. (Real pattern: the JSON decoder recursed once per nesting level; a depth limit
+  existed on the encode path but not on every decode path, so a deeply nested document overflowed the stack.)
 
 ## How to build (raw bytes)
 ```python
 open('poc','wb').write(b'['*100000)             # depth bomb -> stack-overflow
-# or a domain-shaped doc with an out-of-range index:
-import json; json.dump({"asset":{"version":"2.0"},"nodes":[{"mesh":9}],"meshes":[]}, open('poc','w'))
 ```
-Note: a depth bomb only scores if the DESCRIBED bug is recursion/nesting; if the bug is an OOB index,
-a bomb crashes the fixed build too (score 0) — match the construction to the described bug.
+Tune the depth: too shallow = no crash; very deep = ASan stack-overflow (or a bare SIGSEGV, still a
+valid crash). **Only use a depth bomb when the DESCRIBED bug is recursion/nesting** — for any other
+bug it crashes the fixed build too (score 0).
 
 ## Reachability
-If the harness wraps JSON (e.g. a typed decoder), the top value must match the expected type before
-the buggy field is reached.
+If the harness wraps JSON in a typed decoder, the top value must match the expected type before the
+recursive descent reaches the unbounded depth.
 
 # Examples
 - Support: 1 train-set solves.

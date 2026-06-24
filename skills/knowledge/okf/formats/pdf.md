@@ -9,21 +9,20 @@ okf_support: 1
 ---
 # Schema
 ## Identification
-Adobe PDF. Starts with `%PDF-1.x`. Ends with `startxref`/`%%EOF`. mupdf/pdfium/poppler are lenient
-and will RECONSTRUCT a broken xref, so a minimal hand-built PDF usually parses.
+Adobe PDF. Starts with `%PDF-1.x`; ends with `startxref`/`%%EOF`. mupdf/pdfium/poppler are lenient
+and RECONSTRUCT a broken xref, so a minimal hand-built PDF usually parses.
 
 ## Structure
 - Objects: `N 0 obj … endobj`. Body dicts `<< /Key val >>`, arrays `[ … ]`, streams `<<…>>stream\n…endstream`.
 - Document: Catalog → Pages → Page(s); a Page has `/Contents` (a content-stream) + `/MediaBox` + `/Resources`.
 - xref table + `trailer << /Root N 0 R /Size M >>` + `startxref <offset>`.
 - **Content streams** are a postfix operator language: `q`/`Q` (save/restore gstate), `re` (rect path),
-  `W`/`W*` (clip), `n`/`f`/`S` (paint), `BT…ET` (text), `Do` (XObject), `BDC`/`BMC`/`EMC` (marked content).
+  `W`/`W*` (clip), `n`/`f`/`S` (paint), `BT…ET` (text), `BDC`/`BMC`/`EMC` (marked content).
 
-## Where bugs hide
-- Content-stream operators with unbounded nesting/state: deeply nested `q` or `W` clip marks
-  overflowing a fixed gstate/clip/marked-content stack (e.g. `nest_mark[256]`).
-- Object/xref index and `/Length` mismatches; recursive object references.
-- Filter decoders (Flate/LZW/ASCIIHex) fed malformed data.
+## Where bugs hide (observed)
+- Content-stream operators with unbounded nesting/state. (Real pattern: each `W` clip pushed a
+  CLIP_MARK into a fixed `int nest_mark[256]` field WITHOUT the bounds check that guarded the
+  marked-content push; >256 clip ops overran the heap-allocated processor struct → heap-overflow WRITE.)
 
 ## How to build (raw bytes; xref optional thanks to reconstruction)
 ```python

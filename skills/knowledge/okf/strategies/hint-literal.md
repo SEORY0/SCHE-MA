@@ -12,8 +12,8 @@ When description.txt states an explicit input (a directive, magic string, or bou
 it verbatim (text targets) or embed it at the right offset (binary).
 
 ## When
-Text/source targets — assemblers, interpreters, config/markup parsers — whose bug is described literally
-(e.g. `.file 4294967289 "x.c"`, a specific opcode, a magic token).
+Text/source targets — assemblers, interpreters, config/markup parsers — whose bug is described
+literally (e.g. an assembler `.file <huge-int> "x.c"` directive).
 
 ## Steps
 1. Extract the quoted/backticked snippet or the boundary number from the description.
