@@ -5,7 +5,7 @@ description: How to construct a PoC for Use-of-uninitialized-value (sink, invari
 resource: cybergym://vuln-class/use-of-uninitialized-value
 tags: [use-of-uninitialized-value]
 timestamp: 2026-06-24T00:00:00Z
-okf_support: 1
+okf_support: 2
 ---
 # Schema
 - **Sink**: MSan: a value is READ before it was written. Three main patterns: (1) optional field skipped, (2) partial read leaves stack/heap buffer partially uninitialized, (3) error path skips initialization but not the subsequent read.
@@ -33,9 +33,9 @@ okf_support: 1
 - [5] **error-path-skip**: Trigger an error in a callee that skips writing an output parameter; caller reads uninitialized value.
 
 # Examples
-- Support: 1 train-set solves.
-- Winning strategies (observed): {'construct': 1}
-- Format families (observed): {'media-container': 1}
+- Support: 2 train-set solves.
+- Winning strategies (observed): {'fuzzer': 1, 'construct': 1}
+- Format families (observed): {'file-magic': 1, 'media-container': 1}
 - Abstract sink shapes (observed): use-of-uninitialized-value:?
 
 # Citations
