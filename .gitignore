@@ -29,3 +29,6 @@ data/okf_provenance/
 # OKF operational state (regenerable run artifacts)
 data/okf_escalate.txt
 data/okf_logs/
+
+# Fuzzer crash finds (contain poc bytes / task-specific) — never commit
+data/okf_fuzz_finds/

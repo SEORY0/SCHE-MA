@@ -1,9 +1,0 @@
-{
-  "task_id": "oss-fuzz:42537594",
-  "crash": false,
-  "crash_type": null,
-  "sink_fn": null,
-  "sink_loc": null,
-  "poc_b64": null,
-  "error": null
-}

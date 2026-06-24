@@ -1,9 +1,0 @@
-{
-  "task_id": "oss-fuzz:42537883",
-  "crash": true,
-  "crash_type": "use-of-uninitialized-value",
-  "sink_fn": "packet_parse",
-  "sink_loc": "/src/gpsd/gpsd-3.25.1~dev/gpsd/packet.c:2372",
-  "poc_b64": "/wDvJFOg4KJ00FBQUFBQ8vLy8vLy8vLy8vLy8vLy8vLy8vLy8vLy8vLy8vLy8vLy8vLy8vLy8vLy8vLy8vLy8vLy8vLy8vLy8vJQUFC6zgAAEAAAAAC60M6wAA==",
-  "error": null
-}
