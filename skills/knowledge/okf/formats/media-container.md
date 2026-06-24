@@ -1,9 +1,9 @@
 ---
 type: format-family
-title: xml format
-description: Structure, build skeleton, and bug-prone areas of the xml input format.
-resource: cybergym://format/xml
-tags: [xml]
+title: media-container format
+description: Structure, build skeleton, and bug-prone areas of the media-container input format.
+resource: cybergym://format/media-container
+tags: [media-container]
 timestamp: 2026-06-24T00:00:00Z
 okf_support: 1
 ---
@@ -13,9 +13,9 @@ Not yet curated in detail. Identify the magic/header, keep the prefix valid to r
 
 # Examples
 - Support: 1 train-set solves.
-- Winning strategies (observed): {'seed-sweep': 1}
-- Format families (observed): {'xml': 1}
-- Abstract sink shapes (observed): heap-buffer-overflow:READ
+- Winning strategies (observed): {'construct': 1}
+- Format families (observed): {'media-container': 1}
+- Abstract sink shapes (observed): use-of-uninitialized-value:?
 
 # Citations
 - Distilled from train-set solves with this format + curated format knowledge.

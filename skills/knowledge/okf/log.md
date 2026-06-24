@@ -1,4 +1,4 @@
 # Log
 
 ## 2026-06-24
-* Distilled bundle from 15 train solves (pilot): {'vuln-classes': 3, 'formats': 6, 'strategies': 3}.
+* Distilled bundle from 10 train solves (pilot): {'vuln-classes': 4, 'formats': 7, 'strategies': 3}.

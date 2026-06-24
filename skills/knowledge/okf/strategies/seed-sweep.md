@@ -5,7 +5,7 @@ description: What
 resource: cybergym://strategy/seed-sweep
 tags: [seed-sweep, seed_mutation]
 timestamp: 2026-06-24T00:00:00Z
-okf_support: 10
+okf_support: 4
 ---
 ## What
 Run EVERY in-repo corpus/seed file through the target unmodified; a seed that already crashes the
@@ -25,7 +25,7 @@ binary inputs. Highest yield on complex container formats.
 - Skip source files (`.c/.cc/.h/.go/...`); they are not fuzzer inputs.
 
 ## Observed
-- Support: 10 train-set solves.
-- Winning strategies (observed): {'seed-sweep': 10}
-- Format families (observed): {'xml': 2, 'pcap': 1, 'chunked-image': 1}
-- Abstract sink shapes (observed): detected:?, heap-buffer-overflow:READ, heap-buffer-overflow:WRITE
+- Support: 4 train-set solves.
+- Winning strategies (observed): {'seed-sweep': 4}
+- Format families (observed): {'xml': 1, 'pcap': 1, 'chunked-image': 1}
+- Abstract sink shapes (observed): heap-buffer-overflow:READ, heap-buffer-overflow:WRITE

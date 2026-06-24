@@ -121,6 +121,10 @@ _CRASH_SIGNALS = {134, 135, 136, 138, 139}  # SIGABRT/?/SIGFPE/SIGBUS/SIGSEGV
 
 
 def is_crash(rc: int, out: str) -> bool:
+    # MSan aborting at startup (can't disable ASLR) is NOT a bug — exclude it so it never
+    # registers as a false-positive crash on every input.
+    if "CHECK failed: msan" in out or "msan_linux.cpp" in out:
+        return False
     # a sanitizer report (libFuzzer prints "ERROR: ... Sanitizer"), OR a bare fatal signal
     # (e.g. a deep-recursion stack overflow that segfaults before ASan can report it).
     if rc != 0 and ("Sanitizer:" in out or "ABORTING" in out or "runtime error:" in out):
@@ -139,7 +143,11 @@ class Box:
 
     def start(self) -> bool:
         _sh(["docker", "rm", "-f", self.name], timeout=30)
+        # seccomp=unconfined lets MSan-built targets call personality(ADDR_NO_RANDOMIZE);
+        # without it MSan aborts at startup with a CHECK-failed that looks like a crash
+        # (false positive on EVERY input). Harmless for ASan/UBSan targets.
         rc, _ = _sh(["docker", "run", "-d", "--name", self.name,
+                     "--security-opt", "seccomp=unconfined",
                      image_of(self.task_id), "sleep", "infinity"], timeout=120)
         return rc == 0
 
