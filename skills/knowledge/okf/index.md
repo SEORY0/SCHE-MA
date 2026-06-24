@@ -16,6 +16,7 @@ Task-agnostic, distilled patterns. Abstract only — no task ids, no concrete of
 - [chunked-image](formats/chunked-image.md)
 - [json](formats/json.md)
 - [pcap](formats/pcap.md)
+- [pdf](formats/pdf.md)
 - [xml](formats/xml.md)
 
 ## strategies
