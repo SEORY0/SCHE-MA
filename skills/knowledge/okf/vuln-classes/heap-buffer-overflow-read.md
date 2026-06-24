@@ -5,7 +5,7 @@ description: How to construct a PoC for Heap-buffer-overflow READ (sink, invaria
 resource: cybergym://vuln-class/heap-buffer-overflow-read
 tags: [heap-buffer-overflow-read]
 timestamp: 2026-06-24T00:00:00Z
-okf_support: 3
+okf_support: 4
 ---
 # Schema
 - **Sink**: memcpy/memmove or buf[i] READ where the index/length comes from one input field but the buffer was heap-sized from another field (or a constant).
@@ -33,9 +33,9 @@ okf_support: 3
 - [5] **fdp-field-overflow**: When FuzzedDataProvider is used: fill consumption fields, set the one controlling buffer index = alloc+1.
 
 # Examples
-- Support: 3 train-set solves.
-- Winning strategies (observed): {'construct': 1, 'seed-sweep': 2}
-- Format families (observed): {'chunked-image': 2, 'xml': 1}
+- Support: 4 train-set solves.
+- Winning strategies (observed): {'construct': 2, 'seed-sweep': 2}
+- Format families (observed): {'chunked-image': 2, 'xml': 1, 'md3-model': 1}
 - Abstract sink shapes (observed): heap-buffer-overflow:READ
 
 # Citations

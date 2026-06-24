@@ -18,6 +18,7 @@ Task-agnostic, distilled patterns. Abstract only — no task ids, no concrete of
 ## formats
 - [chunked-image](formats/chunked-image.md)
 - [json](formats/json.md)
+- [md3-model](formats/md3-model.md)
 - [media-container](formats/media-container.md)
 - [pcap](formats/pcap.md)
 - [pdf](formats/pdf.md)

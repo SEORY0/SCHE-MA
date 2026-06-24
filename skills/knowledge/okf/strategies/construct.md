@@ -5,7 +5,7 @@ description: What
 resource: cybergym://strategy/construct
 tags: [construct, format_complex, nested_structures, binary_format]
 timestamp: 2026-06-24T00:00:00Z
-okf_support: 6
+okf_support: 7
 ---
 ## What
 Build a structurally-valid input declaratively (`construct` for binary containers, or raw
@@ -27,7 +27,7 @@ where hand-counting offsets is error-prone.
 - Only the violation field should be "wrong"; an over-corrupt input crashes the fix too (score 0).
 
 ## Observed
-- Support: 6 train-set solves.
-- Winning strategies (observed): {'construct': 6}
-- Format families (observed): {'chunked-image': 1, 'json': 1, 'yara-rules': 1, 'sip-text': 1, 'media-container': 1, 'pdf': 1}
+- Support: 7 train-set solves.
+- Winning strategies (observed): {'construct': 7}
+- Format families (observed): {'chunked-image': 1, 'json': 1, 'yara-rules': 1, 'sip-text': 1, 'media-container': 1, 'md3-model': 1, 'pdf': 1}
 - Abstract sink shapes (observed): heap-buffer-overflow:READ, heap-buffer-overflow:WRITE, stack-overflow:?, undefined-behavior:?, use-after-poison:READ, use-of-uninitialized-value:?
