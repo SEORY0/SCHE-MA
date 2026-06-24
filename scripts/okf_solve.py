@@ -90,7 +90,7 @@ def _sh(args: list[str], timeout: int = 60) -> tuple[int, str]:
 
 
 # ----------------------------------------------------------------------------- ASan parse
-_ASAN_TYPE = re.compile(r"(?:ERROR|SUMMARY): \w*Sanitizer: ([a-z0-9\-]+)")
+_ASAN_TYPE = re.compile(r"(?:ERROR|WARNING|SUMMARY): \w*Sanitizer: ([a-z0-9\-]+)")
 _ASAN_RW = re.compile(r"\b(READ|WRITE) of size (\d+)")
 _FRAME0 = re.compile(r"#0[^\n]*? in (\S+)\s+([^\s:]+:\d+)")
 _DEDUP = re.compile(r"DEDUP_TOKEN: (\S+)")
