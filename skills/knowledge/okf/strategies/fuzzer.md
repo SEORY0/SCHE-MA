@@ -30,5 +30,5 @@ sometimes — the fuzzer finds the canonical minimal reproducer that crashes rel
 ## Observed
 - Support: 3 train-set solves.
 - Winning strategies (observed): {'fuzzer': 3}
-- Format families (observed): {'file-magic': 1, 'media-container': 1, 'gps-packet': 1}
+- Format families (observed): {'file-magic': 1}
 - Abstract sink shapes (observed): use-of-uninitialized-value:?

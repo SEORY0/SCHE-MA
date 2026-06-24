@@ -35,7 +35,7 @@ okf_support: 4
 # Examples
 - Support: 4 train-set solves.
 - Winning strategies (observed): {'fuzzer': 3, 'construct': 1}
-- Format families (observed): {'file-magic': 1, 'media-container': 2, 'gps-packet': 1}
+- Format families (observed): {'file-magic': 1, 'media-container': 1}
 - Abstract sink shapes (observed): use-of-uninitialized-value:?
 
 # Citations
