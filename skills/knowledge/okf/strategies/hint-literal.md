@@ -5,7 +5,7 @@ description: What
 resource: cybergym://strategy/hint-literal
 tags: [hint-literal, flat_text]
 timestamp: 2026-06-24T00:00:00Z
-okf_support: 1
+okf_support: 2
 ---
 ## What
 When description.txt states an explicit input (a directive, magic string, or boundary integer), feed
@@ -24,6 +24,7 @@ literally (e.g. an assembler `.file <huge-int> "x.c"` directive).
 - A truncated/unbalanced literal may be rejected before the sink — keep it syntactically complete.
 
 ## Observed
-- Support: 1 train-set solves.
-- Winning strategies (observed): {'hint-literal': 1}
-- Abstract sink shapes (observed): heap-buffer-overflow:WRITE
+- Support: 2 train-set solves.
+- Winning strategies (observed): {'hint-literal': 2}
+- Format families (observed): {'text-expr': 1}
+- Abstract sink shapes (observed): double-free:?, heap-buffer-overflow:WRITE

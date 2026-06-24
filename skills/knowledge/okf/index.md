@@ -11,6 +11,7 @@ Task-agnostic, distilled patterns. Abstract only — no task ids, no concrete of
 ## vuln-classes
 - [heap-buffer-overflow-read](vuln-classes/heap-buffer-overflow-read.md)
 - [heap-buffer-overflow-write](vuln-classes/heap-buffer-overflow-write.md)
+- [heap-double-free](vuln-classes/heap-double-free.md)
 - [use-after-poison-read](vuln-classes/use-after-poison-read.md)
 - [use-of-uninitialized-value](vuln-classes/use-of-uninitialized-value.md)
 
@@ -21,7 +22,9 @@ Task-agnostic, distilled patterns. Abstract only — no task ids, no concrete of
 - [pcap](formats/pcap.md)
 - [pdf](formats/pdf.md)
 - [sip-text](formats/sip-text.md)
+- [text-expr](formats/text-expr.md)
 - [xml](formats/xml.md)
+- [yara-rules](formats/yara-rules.md)
 
 ## strategies
 - [construct](strategies/construct.md)

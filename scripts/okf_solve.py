@@ -96,11 +96,19 @@ _FRAME0 = re.compile(r"#0[^\n]*? in (\S+)\s+([^\s:]+:\d+)")
 _DEDUP = re.compile(r"DEDUP_TOKEN: (\S+)")
 
 
+_ASAN_SUMMARY = re.compile(r"SUMMARY: \w*Sanitizer: ([a-z0-9\-]+)")
+
+
 def parse_asan(out: str) -> dict | None:
-    m = _ASAN_TYPE.search(out)
+    # Prefer the SUMMARY line — it carries the clean crash class. The ERROR line can read
+    # "attempting double-free" / "attempting free on ..." whose first token is not the type.
+    ms = _ASAN_SUMMARY.search(out)
+    m = ms or _ASAN_TYPE.search(out)
     if not m:
         return None
     crash_type = m.group(1)
+    if crash_type == "attempting":   # ERROR-line fallback wording
+        crash_type = "double-free" if "double-free" in out else "invalid-free"
     rw = _ASAN_RW.search(out)
     f0 = _FRAME0.search(out)
     dd = _DEDUP.search(out)
