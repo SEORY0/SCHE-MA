@@ -12,10 +12,12 @@ Task-agnostic, distilled patterns. Abstract only — no task ids, no concrete of
 - [heap-buffer-overflow-read](vuln-classes/heap-buffer-overflow-read.md)
 - [heap-buffer-overflow-write](vuln-classes/heap-buffer-overflow-write.md)
 - [heap-double-free](vuln-classes/heap-double-free.md)
+- [heap-use-after-free-read](vuln-classes/heap-use-after-free-read.md)
 - [use-after-poison-read](vuln-classes/use-after-poison-read.md)
 - [use-of-uninitialized-value](vuln-classes/use-of-uninitialized-value.md)
 
 ## formats
+- [cff2-font](formats/cff2-font.md)
 - [chunked-image](formats/chunked-image.md)
 - [json](formats/json.md)
 - [md3-model](formats/md3-model.md)
