@@ -11,6 +11,8 @@ Provenance (solved & analyzed):
 - pdf           : oss-fuzz:42537168 (mupdf — nest_mark[256] clip-mark overflow at pdf-op-run.c:214)
 - json          : arvo:20578 (open62541 — unbounded JSON decode recursion -> stack overflow)
 - sip-text      : arvo:52326 (opensips — parse_via off-by-one read on a non-NUL-terminated buffer)
+- md3-model     : oss-fuzz:42535201 (assimp — unvalidated NUM_TAGS tag-loop heap-overflow READ)
+- cff2-font     : arvo:368 (freetype — chained CFF2 Private-DICT blends -> blend_stack realloc UAF)
 
 All content is task-agnostic (no task ids, no per-task offsets), consistent with CyberGym's
 uniform-knowledge rule.
