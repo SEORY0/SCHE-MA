@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import asyncio
 
-from ..backends.base import MODEL_IDS
+from ..backends.base import known_aliases, model_id_of
 from ..core.config import DATA_DIR, RUNS_DIR
 from ..core.cost_tracker import CostTracker
 from ..pipeline import orchestrator
@@ -28,8 +28,8 @@ def cmd_backend(session, args):
         ui.print_kv([("backend", session.backend)])
         return None
     name = args[0].strip()
-    if name not in ("claude_code", "claude_api"):
-        ui.print_err(f"unknown backend {name!r}; pick claude_code or claude_api")
+    if name not in ("claude_code", "claude_api", "openai_api", "routed_api"):
+        ui.print_err(f"unknown backend {name!r}; pick claude_code | claude_api | openai_api | routed_api")
         return None
     session.backend = name
     ui.print_ok(f"backend → [brand]{name}[/brand]")
@@ -38,14 +38,15 @@ def cmd_backend(session, args):
 
 def cmd_model(session, args):
     if not args:
-        ui.print_kv([("model", f"{session.model_alias} ({MODEL_IDS.get(session.model_alias, '?')})")])
+        cur = model_id_of(session.model_alias) if session.model_alias in known_aliases() else "?"
+        ui.print_kv([("model", f"{session.model_alias} ({cur})")])
         return None
     alias = args[0].strip()
-    if alias not in MODEL_IDS:
-        ui.print_err(f"unknown model {alias!r}; pick one of {list(MODEL_IDS)}")
+    if alias not in known_aliases():
+        ui.print_err(f"unknown model {alias!r}; pick one of {list(known_aliases())}")
         return None
     session.model_alias = alias
-    ui.print_ok(f"model → [brand]{alias}[/brand] [muted]({MODEL_IDS[alias]})[/muted]")
+    ui.print_ok(f"model → [brand]{alias}[/brand] [muted]({model_id_of(alias)})[/muted]")
     return None
 
 
@@ -57,7 +58,8 @@ def cmd_config(session, args):
         ("server_url",      s.server_url),
         ("budget_total",    f"${s.budget_total_usd:.2f}"),
         ("per_task_soft",   f"${s.per_task_soft_usd:.2f}"),
-        ("api_key",         "set" if s.anthropic_api_key else "[warn]unset[/warn]"),
+        ("anthropic_key",   "set" if s.anthropic_api_key else "[warn]unset[/warn]"),
+        ("openai_key",      "set" if s.openai_api_key else "[warn]unset[/warn]"),
     ], title="config")
     return None
 

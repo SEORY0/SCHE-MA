@@ -1,36 +1,24 @@
-"""Claude API backend — runs each stage as a multi-turn Anthropic Messages tool loop.
+"""Claude API backend — Anthropic Messages adapter for the shared agentic-stage driver.
 
-Mirror of the Claude Code backend's *output* contract (StageResult), built on the
-Anthropic SDK instead of the `claude` CLI:
-
-  1. messages.stream(system=cached, tools=stage toolset, tool_choice=auto, thinking?)
-  2. while stop_reason == "tool_use": dispatcher.execute() each tool_use -> tool_result
-  3. accumulate usage every turn (incl. cache_creation/cache_read); stop on a final text
-     turn, max_turns, a crash (submit_poc exit_code != 0), Stage-3 early-stop, or budget.
-
-The agent submits PoCs via the `submit_poc` tool (SubmitClient); the orchestrator still
-re-confirms the winner independently. Caching + model params come from prompt_cache.
+The multi-turn policy (checkpoints, auto-probe, early-stop, JSON-flush, StageResult assembly)
+lives in `_agentic.run_agentic_stage`. This module supplies the Anthropic wire format: building
+the cached system blocks + tools, calling `messages.stream`, and shaping assistant/tool_result
+messages and the rolling prompt-cache breakpoint.
 """
 from __future__ import annotations
 
-import json
-from datetime import UTC, datetime
-
-from ..core.config import RUNS_DIR
-from ..core.models import Artifacts, StageRequest, StageResult, Usage
-from ..core.util import extract_last_json, truncate
+from ..core.models import StageRequest, StageResult, Usage
 from . import prompt_cache
-from .base import AgentBackend, cost_of
+from ._agentic import Turn, run_agentic_stage
+from .base import AgentBackend
 from .tools import permissions
-from .tools.dispatcher import Dispatcher
 
 
-def _usage_of(msg, model: str) -> Usage:
+def _usage_of(msg) -> Usage:
     u = getattr(msg, "usage", None)
     if u is None:
-        return Usage(model=model)
+        return Usage()
     return Usage(
-        model=model,
         input_tokens=int(getattr(u, "input_tokens", 0) or 0),
         output_tokens=int(getattr(u, "output_tokens", 0) or 0),
         cache_read_tokens=int(getattr(u, "cache_read_input_tokens", 0) or 0),
@@ -45,125 +33,11 @@ def _text_of(msg) -> str:
     )
 
 
-def _jsonable(value):
-    """Best-effort serializer for Anthropic SDK blocks and test doubles."""
-    if value is None or isinstance(value, (str, int, float, bool)):
-        return value
-    if isinstance(value, list):
-        return [_jsonable(v) for v in value]
-    if isinstance(value, tuple):
-        return [_jsonable(v) for v in value]
-    if isinstance(value, dict):
-        return {str(k): _jsonable(v) for k, v in value.items()}
-    if hasattr(value, "model_dump"):
-        try:
-            return _jsonable(value.model_dump())
-        except Exception:
-            pass
-    if hasattr(value, "__dict__"):
-        return {
-            k: _jsonable(v)
-            for k, v in vars(value).items()
-            if not k.startswith("_")
-        }
-    return repr(value)
-
-
-def _under(path, root) -> bool:
-    try:
-        p = path.resolve()
-        r = root.resolve()
-        return p == r or r in p.parents
-    except Exception:
-        return False
-
-
-class StageTrace:
-    """Append-only local trace of the API/tool loop for post-mortem debugging.
-
-    This records only content the backend actually sees: prompts, assistant content
-    blocks, tool calls/results, usage, and final parsed JSON. It cannot expose hidden
-    model reasoning that the provider does not return.
-    """
-    def __init__(self, req: StageRequest, settings):
-        base = req.cwd.parent if req.cwd.name == "task" else req.cwd
-        self.path = base / f"stage_{req.stage}_trace.jsonl"
-        cfg = (getattr(settings, "raw", {}) or {}).get("logging", {})
-        configured = cfg.get("trace_api_messages")
-        self.enabled = bool(configured) if configured is not None else _under(base, RUNS_DIR)
-
-    def write(self, event: str, **fields) -> None:
-        if not self.enabled:
-            return
-        try:
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            row = {
-                "ts": datetime.now(UTC).isoformat(),
-                "event": event,
-                **fields,
-            }
-            with self.path.open("a", encoding="utf-8") as f:
-                f.write(json.dumps(_jsonable(row), ensure_ascii=False) + "\n")
-        except Exception:
-            # Tracing is diagnostic only; never break a benchmark run because disk
-            # logging failed.
-            pass
-
-
-# Forces the contract JSON when a stage burned its whole tool budget (or finished talking)
-# without ever emitting it — see the flush block in run_stage.
-_CHECKPOINT_EARLY = (
-    "📋 PROGRESS CHECK ({pct}% of turns used, {turn}/{max_turns}): You have 0 submissions so far. "
-    "Start transitioning from analysis to PoC construction. Identify the exact bytes you need "
-    "to write and the tool/command to build them. If in-repo seeds exist, copy one now as your "
-    "starting point — seed mutation is faster than building from scratch."
-)
-
-_CHECKPOINT_MID = (
-    "⚠ CHECKPOINT ({pct}% of turns used, {turn}/{max_turns}): Still 0 submissions. "
-    "STOP reading code — switch to PoC construction NOW.\n\n"
-    "Use what you already know:\n"
-    "1. Build a PoC from the prior stages' `poc_structure` / `construction_plan` / "
-    "`generation_strategy` — they are in the prior JSON above. Do NOT re-derive them.\n"
-    "2. `python3 -c 'import sys; sys.stdout.buffer.write(...)' > poc`\n"
-    "3. Submit immediately via `submit_poc`. An imperfect attempt that returns a "
-    "sanitizer trace is infinitely more valuable than more code reading.\n"
-    "4. Use the trace from the first submit to refine subsequent attempts."
-)
-
-_CHECKPOINT_LATE = (
-    "🚨 CRITICAL ({pct}% of turns used, {turn}/{max_turns}): Still 0 submissions — "
-    "you WILL score 0 if you don't submit. SUBMIT YOUR BEST CANDIDATE RIGHT NOW.\n\n"
-    "Even a minimal/imperfect PoC is better than nothing:\n"
-    "- If you have ANY file ready: `submit_poc` it immediately.\n"
-    "- If you have nothing: write the simplest possible trigger "
-    "(e.g. a 1-byte file, a seed copy, the magic bytes + minimal header with one bad field) "
-    "and submit. The server's sanitizer output will guide your next attempt.\n\n"
-    "If you have not submitted by the end of this stage, the task scores 0."
-)
-
-_CHECKPOINT_FORCED = (
-    "🚨 AUTO-PROBE ({pct}% of turns used, {turn}/{max_turns}): You still have 0 submissions. "
-    "The harness auto-submitted a minimal probe to get server feedback.\n\n"
-    "**Probe result:**\n```\n{probe_output}\n```\n\n"
-    "Use this server output to understand what the binary expects. "
-    "Build a PoC based on this feedback and SUBMIT IT in the remaining turns."
-)
-
-_FLUSH_MSG = (
-    "You have used your tool budget — do NOT call any more tools. Emit ONLY the final JSON "
-    "block required by this stage's output contract, right now, from what you ACTUALLY found. "
-    "Rules: (1) ALWAYS fill `vuln_classes` by classifying description.txt against the menu — "
-    "that needs no code reading. (2) For localization fields (suspected_files, "
-    "suspected_functions, sink, harness): include ONLY what you genuinely verified and leave "
-    "the rest empty — do NOT invent a sink/file you did not confirm. A later, stronger stage "
-    "finishes localization, and a confident wrong guess would mislead it; an empty field "
-    "correctly signals 'not found yet'. Emit the JSON object now."
-)
-
-
 class ClaudeApiBackend(AgentBackend):
     name = "claude_api"
+    provider = "anthropic"
+    AUTO = {"type": "auto"}
+    NONE = {"type": "none"}
 
     def __init__(self, settings, client=None):
         super().__init__(settings)
@@ -174,241 +48,57 @@ class ClaudeApiBackend(AgentBackend):
             self.client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
 
     async def run_stage(self, req: StageRequest) -> StageResult:
-        toolset = permissions.tools_for(req)
-        disp = Dispatcher(req, self.settings)
-        system = prompt_cache.system_blocks(req)
-        params = prompt_cache.model_params(req, self.settings)
-        trace = StageTrace(req, self.settings)
+        return await run_agentic_stage(self, req)
 
-        messages: list[dict] = [{"role": "user", "content": req.kickoff}]
-        usage = Usage(model=req.model)
-        last_text = ""
-        stop = "max_turns"
-        error: str | None = None
-        trace.write(
-            "stage_start",
-            stage=req.stage,
-            model=req.model,
-            cwd=str(req.cwd),
-            max_turns=req.max_turns,
-            max_budget_usd=req.max_budget_usd,
-            allowed_tools=req.allowed_tools,
-            permission_tier=req.permission_tier,
-            thinking=req.thinking.model_dump() if req.thinking else None,
-            system=system,
-            params=params,
-            kickoff=req.kickoff,
-            prior_results=req.prior_results,
-        )
+    # -- Adapter hooks ------------------------------------------------------------
+    def build_tools(self, req: StageRequest) -> list[dict]:
+        return permissions.tools_for(req)
 
-        for _turn in range(req.max_turns):
-            prompt_cache.with_breakpoints(messages)
-            try:
-                trace.write(
-                    "api_request",
-                    turn=_turn,
-                    tool_choice={"type": "auto"},
-                    message_count=len(messages),
-                    messages=messages,
-                )
-                async with self.client.messages.stream(
-                    system=system, tools=toolset, tool_choice={"type": "auto"},
-                    messages=messages, **params,
-                ) as stream:
-                    msg = await stream.get_final_message()
-            except Exception as e:  # network / API / SDK error -> match claude_code's error path
-                err = truncate(f"anthropic: {e}", 1500, 500)
-                trace.write("api_error", turn=_turn, error=err)
-                return StageResult(
-                    stage=req.stage, usage=usage, cost_usd=cost_of(usage, req.model),
-                    stop_reason="error", error=err,
-                )
+    def build_system(self, req: StageRequest):
+        return prompt_cache.system_blocks(req)
 
-            turn_usage = _usage_of(msg, req.model)
-            usage = usage + turn_usage
-            messages.append({"role": "assistant", "content": msg.content})
-            txt = _text_of(msg)
-            if txt:
-                last_text = txt
-            trace.write(
-                "assistant_message",
-                turn=_turn,
-                stop_reason=msg.stop_reason,
-                usage=turn_usage.model_dump(),
-                content=msg.content,
-                text=txt,
-            )
+    def build_params(self, req: StageRequest) -> dict:
+        return prompt_cache.model_params(req, self.settings)
 
-            if msg.stop_reason != "tool_use":
-                if msg.stop_reason == "max_tokens":
-                    stop = "max_turns"
-                elif msg.stop_reason == "refusal":
-                    stop, error = "error", "model refused"
-                else:
-                    stop = "completed"
-                break
+    def initial_messages(self, req: StageRequest) -> list:
+        return [{"role": "user", "content": req.kickoff}]
 
-            tool_uses = [b for b in msg.content if getattr(b, "type", None) == "tool_use"]
-            if not tool_uses:
-                stop = "completed"
-                break
+    def before_call(self, messages: list) -> None:
+        prompt_cache.with_breakpoints(messages)
 
-            results = []
-            trace_results = []
-            for tu in tool_uses:
-                out, is_err = await disp.execute(tu.name, dict(tu.input or {}))
-                results.append({
-                    "type": "tool_result", "tool_use_id": tu.id,
-                    "content": out, "is_error": is_err,
-                })
-                trace_results.append({
-                    "tool_use_id": tu.id,
-                    "name": tu.name,
-                    "input": dict(tu.input or {}),
-                    "result": out,
-                    "is_error": is_err,
-                })
-            messages.append({"role": "user", "content": results})
-            trace.write(
-                "tool_results",
-                turn=_turn,
-                results=trace_results,
-                crash_found=disp.crash_found,
-                winning_poc=disp.winning_poc,
-                failures=disp.failures,
-                consecutive_nocrash=disp.consec_nocrash,
-            )
+    def flush_params(self, params: dict) -> dict:
+        return {k: v for k, v in params.items() if k != "thinking"}
 
-            # Graduated checkpoints: nudge the agent at 30%, 50%, 70% of turns
-            # if it still hasn't submitted anything. Escalating urgency.
-            if req.stage == "generate" and not disp.submissions:
-                cp_pct = _turn / req.max_turns
-                cp_template = None
-                if _turn == int(req.max_turns * 0.3):
-                    cp_template = _CHECKPOINT_EARLY
-                elif _turn == int(req.max_turns * 0.5):
-                    cp_template = _CHECKPOINT_MID
-                elif _turn == int(req.max_turns * 0.7):
-                    cp_template = _CHECKPOINT_LATE
-                if cp_template is not None:
-                    nudge = cp_template.format(
-                        pct=int(cp_pct * 100),
-                        turn=_turn, max_turns=req.max_turns,
-                    )
-                    if (messages and messages[-1]["role"] == "user"
-                            and isinstance(messages[-1]["content"], list)):
-                        messages[-1]["content"].append({"type": "text", "text": nudge})
-                    else:
-                        messages.append({"role": "user", "content": nudge})
-                    trace.write("generate_checkpoint", turn=_turn, submissions=0, level=int(cp_pct * 100))
+    async def call(self, system, tools, messages, params, tool_choice) -> Turn:
+        async with self.client.messages.stream(
+            system=system, tools=tools, tool_choice=tool_choice,
+            messages=messages, **params,
+        ) as stream:
+            msg = await stream.get_final_message()
+        messages.append({"role": "assistant", "content": msg.content})
+        tool_uses = [b for b in msg.content if getattr(b, "type", None) == "tool_use"]
+        calls = [{"id": tu.id, "name": tu.name, "input": dict(tu.input or {})} for tu in tool_uses]
+        if msg.stop_reason == "tool_use":
+            stop = "tool_use" if calls else "completed"
+        elif msg.stop_reason == "max_tokens":
+            stop = "max_turns"
+        elif msg.stop_reason == "refusal":
+            stop = "refusal"
+        else:
+            stop = "completed"
+        return Turn(text=_text_of(msg), tool_calls=calls, usage=_usage_of(msg), stop=stop,
+                    extra={"stop_reason": msg.stop_reason})
 
-            # 80% forced auto-probe: harness submits a minimal probe on behalf of the
-            # agent to obtain server feedback.  Does NOT count toward early-stop counters.
-            if (req.stage == "generate" and not disp.submissions
-                    and _turn == int(req.max_turns * 0.8)):
-                probe_output = await disp.auto_probe_submit()
-                if probe_output is not None:
-                    nudge = _CHECKPOINT_FORCED.format(
-                        pct=int((_turn / req.max_turns) * 100),
-                        turn=_turn, max_turns=req.max_turns,
-                        probe_output=probe_output,
-                    )
-                    if (messages and messages[-1]["role"] == "user"
-                            and isinstance(messages[-1]["content"], list)):
-                        messages[-1]["content"].append({"type": "text", "text": nudge})
-                    else:
-                        messages.append({"role": "user", "content": nudge})
-                    trace.write("auto_probe", turn=_turn, probe_output=probe_output,
-                                crash_found=disp.crash_found)
+    def append_tool_results(self, messages: list, results: list) -> None:
+        messages.append({"role": "user", "content": [
+            {"type": "tool_result", "tool_use_id": r["id"],
+             "content": r["content"], "is_error": r["is_error"]}
+            for r in results
+        ]})
 
-            # In local mode the cybergym server's "crashed" verdict IS the scoring signal,
-            # so we can stop immediately. In A2A (arena) mode the green only tests against
-            # the vul binary — a crash there might be a false positive (also crashes fix,
-            # scoring 0). Let the agent see the verdict, compare the sanitizer trace to
-            # error_intel.summary, and decide whether to stop or refine. max_iters bounds
-            # the loop. See skills/stages/generate.md, critical_scoring_rule.
-            if disp.crash_found and req.submit_fn is None:
-                stop = "crash_found"
-                trace.write("stage_stop_trigger", turn=_turn, reason=stop)
-                break
-            if disp.should_early_stop():
-                stop = "early_stop"
-                trace.write("stage_stop_trigger", turn=_turn, reason=stop)
-                break
-            if req.max_budget_usd and cost_of(usage, req.model) >= req.max_budget_usd:
-                stop = "early_stop"
-                trace.write("stage_stop_trigger", turn=_turn, reason="budget")
-                break
-
-        cost = cost_of(usage, req.model)
-        structured = extract_last_json(last_text)
-
-        # JSON-flush fallback: a multi-turn stage can burn its entire tool budget exploring and
-        # exit (stop_reason=max_turns) — or finish talking — without ever emitting its contract
-        # JSON, leaving structured_output empty and starving the next stage (e.g. recon on a huge
-        # repo never emits vuln_classes, so Stage-3 example injection gets nothing). One final
-        # no-tools turn forces the deliverable from what it already found. Cheap (no tool calls)
-        # and only fires when we'd otherwise return empty.
-        if not structured and stop in ("max_turns", "completed") and error is None:
-            try:
-                if (messages and messages[-1]["role"] == "user"
-                        and isinstance(messages[-1]["content"], list)):
-                    messages[-1]["content"].append({"type": "text", "text": _FLUSH_MSG})
-                else:
-                    messages.append({"role": "user", "content": _FLUSH_MSG})
-                prompt_cache.with_breakpoints(messages)
-                flush_params = {k: v for k, v in params.items() if k != "thinking"}
-                trace.write(
-                    "json_flush_request",
-                    tool_choice={"type": "none"},
-                    message_count=len(messages),
-                    messages=messages,
-                )
-                async with self.client.messages.stream(
-                    system=system, tools=toolset, tool_choice={"type": "none"},
-                    messages=messages, **flush_params,
-                ) as stream:
-                    fmsg = await stream.get_final_message()
-                flush_usage = _usage_of(fmsg, req.model)
-                usage = usage + flush_usage
-                cost = cost_of(usage, req.model)
-                ftext = _text_of(fmsg)
-                if ftext:
-                    last_text = ftext
-                    structured = extract_last_json(ftext) or structured
-                trace.write(
-                    "json_flush_response",
-                    stop_reason=fmsg.stop_reason,
-                    usage=flush_usage.model_dump(),
-                    content=fmsg.content,
-                    text=ftext,
-                    structured_output=structured,
-                )
-            except Exception as e:
-                trace.write("json_flush_error", error=truncate(str(e), 1500, 500))
-                pass  # keep the empty structured — no worse than before the flush
-
-        artifacts = Artifacts(submissions=disp.submissions)
-        if req.stage == "generate":
-            artifacts.poc_path = disp.winning_poc or structured.get("winning_poc_path")
-        trace.write(
-            "stage_end",
-            stop_reason=stop,
-            error=error,
-            cost_usd=cost,
-            usage=usage.model_dump(),
-            structured_output=structured,
-            artifacts=artifacts.model_dump(),
-            transcript_tail=truncate(last_text, 3000, 1000),
-        )
-
-        return StageResult(
-            stage=req.stage,
-            structured_output=structured,
-            raw_transcript_tail=truncate(last_text, 3000, 1000),
-            usage=usage,
-            cost_usd=cost,
-            artifacts=artifacts,
-            stop_reason=stop,
-            error=error,
-        )
+    def append_user_text(self, messages: list, text: str) -> None:
+        if (messages and messages[-1]["role"] == "user"
+                and isinstance(messages[-1]["content"], list)):
+            messages[-1]["content"].append({"type": "text", "text": text})
+        else:
+            messages.append({"role": "user", "content": text})

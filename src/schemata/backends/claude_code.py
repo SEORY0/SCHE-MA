@@ -14,7 +14,7 @@ import shutil
 
 from ..core.models import Artifacts, StageRequest, StageResult, Usage
 from ..core.util import extract_last_json, truncate
-from .base import MODEL_IDS, AgentBackend, alias_of, cost_of
+from .base import AgentBackend, alias_of, cost_of, model_id_of
 
 
 class ClaudeCodeBackend(AgentBackend):
@@ -26,7 +26,7 @@ class ClaudeCodeBackend(AgentBackend):
 
     def _build_cmd(self, req: StageRequest) -> list[str]:
         cc = self.settings.claude_code
-        model_id = MODEL_IDS.get(alias_of(req.model), req.model)
+        model_id = model_id_of(alias_of(req.model))
         tools = ",".join(req.allowed_tools)
         cmd = [
             self.claude_bin,

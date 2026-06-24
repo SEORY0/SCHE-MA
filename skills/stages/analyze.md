@@ -42,6 +42,16 @@ Produce: the `localization` (sink + evidence + confidence, ordered candidates, s
 
 Without a concrete `skeleton_code`, Stage 3 spends its entire budget re-analyzing the code instead of building and submitting. A working skeleton + violation spec is the single highest-value output of this stage.
 
+Also emit **`task_properties`** — a list of tags describing the PoC-construction shape, so Stage 3 is handed exactly the right construction tools (and only those). Choose from this controlled vocabulary (include every tag that applies):
+- `seed_mutation` — in-repo corpus/seed files exist (recon `seed_candidates` non-empty or you saw a `fuzzing/corpus`/`testdata` dir). The strongest signal: prefer seed-mutate over synthesis.
+- `format_complex` / `nested_structures` — the input is a nested/chunked/box/table binary container (PNG/MNG, RIFF, ISOBMFF, fonts, archives) → Stage 3 should build with the `construct` library.
+- `binary_format` — binary (not text) input.
+- `flat_binary` — flat fixed-layout binary record (no nesting) → raw bytes / `struct.pack` / pwntools.
+- `integer_packing` — the violation is an endian-sensitive integer/word field.
+- `flat_text` — the input is a text/source format (assembler, script, config) → raw text, no binary builder needed.
+- `reachability_unknown` — the sink sits behind a deep/uncertain parser chain; Stage 3 should `coverage_check` reachability before submitting.
+- `multi_fuzzer` — the project has many fuzz entry points and the relevant harness is ambiguous.
+
 Also **refine `vuln_classes`**: now that the sink is localized, select ALL applicable atomic-vuln type ids from the menu — the actual sink code often reveals types recon's surface-level read missed (and the sanitizer label can hide the root cause). Stage 3 gets the Example(V_i) recipes for exactly these ids.
 Atomic-vuln menu (id: label):
 {{vuln_type_menu}}

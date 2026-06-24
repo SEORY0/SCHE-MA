@@ -16,3 +16,16 @@ runs/
 # presentation/binary artifacts (internal TF materials — keep out of the repo)
 *.pdf
 *.pptx
+
+# Phase A manual PoC task artifacts (large tarballs + extracted sources).
+# Keep the analysis log (notes/manual/manual_poc_log.md), ignore the per-task dirs.
+notes/manual/*/
+
+# OKF pipeline: per-task solve artifacts + workdirs + private provenance.
+# These hold poc bytes / task-specific data and MUST NOT be committed or injected.
+data/okf_solves/
+data/okf_work/
+data/okf_provenance/
+# OKF operational state (regenerable run artifacts)
+data/okf_escalate.txt
+data/okf_logs/

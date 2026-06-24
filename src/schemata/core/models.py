@@ -154,6 +154,8 @@ class TaskOutcome(BaseModel):
     discriminator_verdict: str | None = None
     cost_usd: float = 0.0
     stages_run: list[str] = Field(default_factory=list)
+    # tool name -> total call count across all stages (tool-adoption measurement)
+    tool_calls: dict[str, int] = Field(default_factory=dict)
     run_dir: str = ""
     error: str | None = None
     # True when cheap recon failed to localize and we promoted the analyze stage mid-run

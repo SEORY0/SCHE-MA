@@ -62,6 +62,16 @@ def test_generate_kickoff_is_backend_aware(tmp_path):
     assert "submit.sh" in cc.kickoff           # local: script
 
 
+def test_generate_kickoff_capability_driven_for_openai_and_routed(tmp_path):
+    # The submit hint follows the backend *capability*, not the name: openai_api and routed_api
+    # are tool-based, so they must name submit_poc (not bash submit.sh).
+    settings, plan, meta, handle = _ctx(tmp_path)
+    for backend in ("openai_api", "routed_api"):
+        req = build_request("generate", plan, meta, handle, {}, settings, backend)
+        assert "submit_poc" in req.kickoff
+        assert "submit.sh" not in req.kickoff
+
+
 def test_harness_convention_and_format_advice_injected(tmp_path):
     settings, plan, meta, handle = _ctx(tmp_path)
     meta = TaskMeta(task_id="t", project="binutils", input_format="elf")
@@ -207,3 +217,26 @@ def test_analysis_tools_not_in_recon(tmp_path):
     settings, plan, meta, handle = _ctx(tmp_path)
     req = build_request("recon", plan, meta, handle, {}, settings, "claude_api")
     assert "tool_skill" not in req.system_prompt
+
+
+def test_generate_injects_construct_for_complex_format(tmp_path):
+    # analyze emits task_properties=[format_complex] -> only the construct skill loads,
+    # with the imperative selected_tools header; pwntools is NOT injected.
+    settings, plan, meta, handle = _ctx(tmp_path)
+    prior = {"analyze": {"task_properties": ["format_complex"]}}
+    req = build_request("generate", plan, meta, handle, prior, settings, "claude_api")
+    assert "selected_tools" in req.system_prompt
+    # construct skill BODY is injected; pwntools skill BODY is not (match on the
+    # unique body headers, since the procedure text itself name-drops both tools).
+    assert "Declarative Binary Format Builder" in req.system_prompt
+    assert "Binary Packing & Exploit Primitives" not in req.system_prompt
+
+
+def test_generate_seed_mutation_derived_from_seed_candidates(tmp_path):
+    # Deterministic: in-repo seeds -> seed_mutation property -> pwntools skill (lists
+    # seed_mutation trigger) is injected even without an analyze task_properties tag.
+    settings, plan, meta, handle = _ctx(tmp_path)
+    prior = {"harness_contract": {"seed_candidates": ["corpus/a.heic"]}}
+    req = build_request("generate", plan, meta, handle, prior, settings, "claude_api")
+    assert "selected_tools" in req.system_prompt
+    assert "Binary Packing & Exploit Primitives" in req.system_prompt  # pwntools body

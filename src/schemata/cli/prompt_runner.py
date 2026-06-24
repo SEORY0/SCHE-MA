@@ -17,7 +17,7 @@ import shutil
 import subprocess
 from dataclasses import dataclass
 
-from ..backends.base import MODEL_IDS
+from ..backends.base import known_aliases, model_id_of
 
 
 @dataclass
@@ -29,7 +29,7 @@ class AskResult:
 
 
 def _resolve_model(alias: str) -> str:
-    return MODEL_IDS.get(alias, alias)
+    return model_id_of(alias) if alias in known_aliases() else alias
 
 
 def _ask_code(prompt: str, model_id: str, cwd: str) -> AskResult:
@@ -87,11 +87,24 @@ def _ask_api(prompt: str, model_id: str, api_key: str | None) -> AskResult:
 
 
 def ask(session, prompt: str, *, model_alias: str | None = None) -> AskResult:
-    """Dispatch a free-form prompt to the active backend."""
+    """Dispatch a free-form prompt to the active backend.
+
+    Free-form chat is Anthropic-only (the OpenAI Responses path is reserved for pipeline
+    stages). Under routed_api, chat uses the Anthropic path; pick a Claude alias for it.
+    """
+    from ..backends.base import known_aliases, provider_of
     alias = model_alias or session.model_alias
     model_id = _resolve_model(alias)
     if session.backend == "claude_code":
         return _ask_code(prompt, model_id, cwd=session.cwd)
-    if session.backend == "claude_api":
+    if session.backend in ("claude_api", "routed_api"):
+        if alias in known_aliases() and provider_of(alias) != "anthropic":
+            raise RuntimeError(
+                f"free-form chat is Anthropic-only; {alias!r} is not a Claude model. "
+                "Switch with `/model sonnet` (or another Claude alias)."
+            )
         return _ask_api(prompt, model_id, api_key=session.settings.anthropic_api_key)
-    raise RuntimeError(f"unknown backend: {session.backend!r}")
+    raise RuntimeError(
+        f"free-form chat is not supported on backend {session.backend!r}; "
+        "use claude_api or routed_api with a Claude model alias."
+    )

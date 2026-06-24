@@ -137,6 +137,16 @@ def test_hard_plan_uses_opus():
     assert p.thinking is True
 
 
+def test_router_may_select_gpt5():
+    """gpt5 is a valid generate_model alias the router can choose (routes to OpenAI)."""
+    decision = _coerce({
+        "difficulty": "hard", "stages": ["recon", "analyze", "generate"],
+        "generate_model": "gpt5", "thinking": True, "instrument": True,
+    })
+    p = _to_pipeline_plan(decision, _settings())
+    assert p.stage_models["generate"] == "gpt5"
+
+
 # ---------------------------------------------------------------------------
 # _default_plan
 # ---------------------------------------------------------------------------

@@ -201,3 +201,42 @@ def test_early_stop_on_consecutive_nocrash(tmp_path, monkeypatch):
         asyncio.run(d.execute("submit_poc", {"poc_path": "poc"}))
     assert not d.crash_found
     assert d.consec_nocrash == 3 and d.should_early_stop()
+
+
+def test_submit_gate_blocks_unvalidated_with_container(tmp_path):
+    # Container attached + local mode + poc never validated -> submit refused.
+    (tmp_path / "poc").write_bytes(b"\x00")
+    d = _disp(tmp_path, instrument_container="fake_container")
+    out, is_err = asyncio.run(d.execute("submit_poc", {"poc_path": "poc"}))
+    assert is_err and "refused" in out and "validate" in out
+
+
+def test_submit_gate_clears_after_local_validation(tmp_path):
+    # After a poc is recorded as locally validated, the gate no longer fires;
+    # we reach the submit-config path instead (proves the gate passed).
+    (tmp_path / "poc").write_bytes(b"\x00")
+    d = _disp(tmp_path, instrument_container="fake_container", checksum=None)
+    d.validated_pocs.add(str((tmp_path / "poc").resolve()))
+    out, is_err = asyncio.run(d.execute("submit_poc", {"poc_path": "poc"}))
+    assert "refused" not in out
+    assert "submission is not configured" in out
+
+
+def test_submit_gate_skipped_without_container(tmp_path, monkeypatch):
+    # No instrument container -> gate does not apply (cannot validate locally).
+    from schemata.backends.tools import dispatcher as disp_mod
+    (tmp_path / "poc").write_bytes(b"\x00")
+    monkeypatch.setattr(disp_mod.SubmitClient, "submit",
+                        lambda self, p: Verdict(exit_code=1, output="crash", poc_id="x"))
+    d = _disp(tmp_path)  # no instrument_container
+    out, is_err = asyncio.run(d.execute("submit_poc", {"poc_path": "poc"}))
+    assert "refused" not in out and not is_err
+    assert d.crash_found
+
+
+def test_tool_calls_counter(tmp_path):
+    # B0: execute() records a per-tool call count for adoption measurement.
+    d = _disp(tmp_path)
+    asyncio.run(d.execute("glob", {"pattern": "*"}))
+    asyncio.run(d.execute("glob", {"pattern": "*.c"}))
+    assert d.tool_calls.get("glob") == 2

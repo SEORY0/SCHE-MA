@@ -179,6 +179,49 @@ def test_selector_assemble_tool_advice(skills_dir):
     assert "Gamma body" not in advice  # missing package
 
 
+def test_selector_task_properties_selects_matching(skills_dir):
+    # A signal that matches alpha's triggers ([no_crash, wrong_sink]) selects only alpha.
+    reg = SkillRegistry(skills_dir)
+    sel = SkillSelector(reg)
+    skills = sel.select_tool_skills(has_instrument=False, task_properties=["wrong_sink"])
+    names = [s.name for s in skills]
+    assert names == ["alpha_tool"]
+
+
+def test_selector_task_properties_excludes_unmatched(skills_dir):
+    # A signal matching no skill's triggers selects nothing (selective, not load-all).
+    reg = SkillRegistry(skills_dir)
+    sel = SkillSelector(reg)
+    skills = sel.select_tool_skills(has_instrument=True, task_properties=["unrelated_prop"])
+    assert skills == []
+
+
+def test_selector_no_signal_falls_back_to_all(skills_dir):
+    # No task_properties and no failure_classes -> safety net: load all available.
+    reg = SkillRegistry(skills_dir)
+    sel = SkillSelector(reg)
+    skills = sel.select_tool_skills(has_instrument=True)
+    names = {s.name for s in skills}
+    assert names == {"alpha_tool", "beta_instrument"}
+
+
+def test_selector_failure_classes_still_match(skills_dir):
+    # Reactive path: failure_classes union still drives selection.
+    reg = SkillRegistry(skills_dir)
+    sel = SkillSelector(reg)
+    skills = sel.select_tool_skills(has_instrument=True, failure_classes=["coverage_unknown"])
+    names = {s.name for s in skills}
+    assert names == {"beta_instrument"}  # only beta has coverage_unknown
+
+
+def test_assemble_advice_imperative_header_when_signals(skills_dir):
+    reg = SkillRegistry(skills_dir)
+    sel = SkillSelector(reg)
+    advice = sel.assemble_tool_advice(has_instrument=False, task_properties=["wrong_sink"])
+    assert "selected_tools" in advice and "wrong_sink" in advice
+    assert "Alpha body content" in advice
+
+
 def test_selector_agent_lookup(skills_dir):
     reg = SkillRegistry(skills_dir)
     sel = SkillSelector(reg)

@@ -14,7 +14,9 @@ try:
     # not override already-set vars. Drop empty ANTHROPIC_/CYBERGYM_ vars first so a
     # populated .env value wins, while real (non-empty) env vars still override .env.
     for _k in [k for k in os.environ
-               if os.environ[k] == "" and (k.startswith("ANTHROPIC_") or k.startswith("CYBERGYM_"))]:
+               if os.environ[k] == "" and (k.startswith("ANTHROPIC_")
+                                           or k.startswith("CYBERGYM_")
+                                           or k.startswith("OPENAI_"))]:
         del os.environ[_k]
     load_dotenv()
 except Exception:  # dotenv optional
@@ -46,6 +48,7 @@ class Settings:
     budget_total_usd: float
     per_task_soft_usd: float
     anthropic_api_key: str | None = field(default=None)
+    openai_api_key: str | None = field(default=None)
     cybergym_api_key: str | None = field(default=None)
 
     def stage_cfg(self, stage: str) -> dict[str, Any]:
@@ -132,5 +135,6 @@ def load_settings(config_path: str | Path | None = None) -> Settings:
         budget_total_usd=float(budget.get("total_usd", 2000.0)),
         per_task_soft_usd=float(budget.get("per_task_soft_usd", 10.0)),
         anthropic_api_key=os.environ.get("ANTHROPIC_API_KEY"),
+        openai_api_key=os.environ.get("OPENAI_API_KEY"),
         cybergym_api_key=os.environ.get("CYBERGYM_API_KEY"),
     )

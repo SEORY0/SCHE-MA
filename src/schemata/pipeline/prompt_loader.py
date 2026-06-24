@@ -5,6 +5,7 @@ import json
 from functools import lru_cache
 from pathlib import Path
 
+from ..backends import submit_mode
 from ..core.config import SKILLS_DIR, Settings
 from ..core.models import PipelinePlan, StageRequest, TaskMeta, ThinkingConfig
 from ..cybergym.task_gen import TaskHandle
@@ -58,11 +59,12 @@ _RETARGET_FAILURE_HINTS = {
 }
 
 
-def _kickoff_for(stage: str, backend_name: str, prior_results: dict | None = None) -> str:
-    """Generate's submit mechanism is backend-specific: the claude_api backend exposes a
-    `submit_poc` tool; the claude_code backend submits via `bash submit.sh`."""
+def _kickoff_for(stage: str, submit_mode: str, prior_results: dict | None = None) -> str:
+    """Generate's submit mechanism is a backend *capability*, not a backend name: tool-based
+    backends (claude_api / openai_api / routed_api) expose a `submit_poc` tool; the claude_code
+    CLI backend submits via `bash submit.sh`."""
     if stage == "generate":
-        submit_hint = "the `submit_poc` tool" if backend_name == "claude_api" else "`bash submit.sh <poc>`"
+        submit_hint = "the `submit_poc` tool" if submit_mode == "tool" else "`bash submit.sh <poc>`"
 
         disc = (prior_results or {}).get("discriminate") or {}
         verdict = str(disc.get("verdict", "")).upper()
@@ -201,6 +203,29 @@ def _seed_first_hint(prior_results: dict) -> str:
     )
 
 
+def _task_properties(prior_results: dict, instrument_container: str | None) -> list[str]:
+    """Construction-shape tags that decide which tool-skills load up front.
+
+    Hybrid: the analyze stage emits semantic tags (`format_complex`,
+    `reachability_unknown`, ...); we additionally derive `seed_mutation`
+    deterministically from detected in-repo seeds so the seed-first path fires
+    even if the LLM omitted the tag. Returns a de-duplicated, order-stable list.
+    """
+    props: list[str] = list((prior_results.get("analyze") or {}).get("task_properties") or [])
+    # deterministic: in-repo seeds -> seed_mutation (same source as _seed_first_hint)
+    contract = prior_results.get("harness_contract", {})
+    seeds = contract.get("seed_candidates") or []
+    if not seeds:
+        recon = prior_results.get("recon", {})
+        seeds = (recon.get("harness", {}).get("seed_candidates")
+                 or recon.get("seed_candidates") or [])
+    if not seeds:
+        seeds = [(prior_results.get("analyze") or {}).get("poc_structure", {}).get("seed_base")]
+    if any(seeds) and "seed_mutation" not in props:
+        props.append("seed_mutation")
+    return props
+
+
 def build_request(
     stage: str,
     plan: PipelinePlan,
@@ -220,7 +245,7 @@ def build_request(
         description_txt = "(no description.txt)"
     # Atomic-vuln classification: recon/analyze pick `vuln_classes` from the type menu; generate
     # gets ONLY the matching Example(V_i) recipes (targeted + token-cheap vs shipping all 28).
-    from ..knowledge import analysis_tools, atomic_vulns, format_knowledge
+    from ..knowledge import analysis_tools, atomic_vulns, format_knowledge, okf_catalog
     vuln_classes = (plan.vuln_classes
                     or prior_results.get("analyze", {}).get("vuln_classes")
                     or prior_results.get("recon", {}).get("vuln_classes") or [])
@@ -238,13 +263,24 @@ def build_request(
                           or prior_results.get("analyze", {}).get("harness", {}).get("fuzzer_convention"))
     seed_first_hint = ""
     analysis_tools_advice = ""
+    okf_examples = ""
     if stage == "generate":
         seed_first_hint = _seed_first_hint(prior_results)
         disc = (prior_results or {}).get("discriminate") or {}
         failure_classes = [disc["failure_class"]] if disc.get("failure_class") else None
+        task_properties = _task_properties(prior_results, instrument_container)
         analysis_tools_advice = analysis_tools.advice(
             has_instrument=bool(instrument_container),
             failure_classes=failure_classes,
+            task_properties=task_properties,
+        )
+        # Distilled OKF knowledge catalog (task-agnostic patterns), keyed by the same
+        # vuln-class / format / harness / task-property vocabularies already computed.
+        okf_examples = okf_catalog.retrieve(
+            vuln_classes=vuln_classes,
+            input_format=meta.input_format,
+            harness_convention=harness_convention,
+            task_properties=task_properties,
         )
 
     tokens = {
@@ -267,6 +303,7 @@ def build_request(
         "seed_first_hint": seed_first_hint,
         "failure_context": _failure_context_hint(prior_results),
         "analysis_tools_advice": analysis_tools_advice,
+        "okf_examples": okf_examples,
     }
 
     parts = [_render(_read("shared/situational_context.md"), tokens)]
@@ -299,7 +336,7 @@ def build_request(
     return StageRequest(
         stage=stage,
         system_prompt=system_prompt,
-        kickoff=_kickoff_for(stage, backend_name, prior_results),
+        kickoff=_kickoff_for(stage, submit_mode(backend_name), prior_results),
         cwd=handle.task_dir,
         model=plan.stage_models.get(stage) or settings.model_for(stage, plan.difficulty),
         allowed_tools=list(scfg.get("tools", ["Bash", "Read", "Grep", "Glob"])),

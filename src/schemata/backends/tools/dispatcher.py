@@ -90,6 +90,8 @@ class Dispatcher:
         self.winning_poc: str | None = None
         self.failures: int = 0          # non-crash official submissions
         self.consec_nocrash: int = 0    # consecutive non-crash submissions
+        self.tool_calls: dict[str, int] = {}   # tool name -> call count (adoption measurement)
+        self.validated_pocs: set[str] = set()  # resolved poc paths cleared by arvo_run/coverage_check
 
         gen = settings.stage_cfg("generate")
         self.max_iters = int(gen.get("max_iters", 5))
@@ -102,6 +104,7 @@ class Dispatcher:
 
     async def execute(self, name: str, tool_input: dict) -> tuple[str, bool]:
         """Run one tool. Returns (tool_result_content, is_error)."""
+        self.tool_calls[name] = self.tool_calls.get(name, 0) + 1
         try:
             handler = getattr(self, f"_t_{name}", None)
             if handler is None:
@@ -203,6 +206,7 @@ class Dispatcher:
         if not poc.is_file():
             return f"no such poc file: {a['poc_path']}", True
         rc, out = await asyncio.to_thread(self._instrumenter().run_poc, c, str(poc))
+        self.validated_pocs.add(str(poc))   # cleared the submit gate (ran locally)
         note = "  (local validation only — call submit_poc to make it official)"
         return truncate(out, _HEAD, _TAIL) + f"\n[arvo exit {rc}]{note}", False
 
@@ -210,6 +214,18 @@ class Dispatcher:
         poc = self._resolve(a["poc_path"])
         if not poc.is_file():
             return f"no such poc file: {a['poc_path']}", True
+        # Validation gate: only when an instrument container is attached AND we are
+        # in local mode (A2A has no container, so it cannot validate locally). Forces
+        # a free local arvo_run/coverage_check before spending an official submission.
+        if (self.req.submit_fn is None and self.req.instrument_container
+                and str(poc) not in self.validated_pocs):
+            return (
+                f"submit_poc refused: validate {a['poc_path']} locally first. "
+                "Call arvo_run (or coverage_check) on this exact poc — it runs the "
+                "sanitized target with no rate limit. Submit only after you see the "
+                "crash locally; this avoids wasting official submissions.",
+                True,
+            )
         if self.req.submit_fn is not None:          # A2A mode: green test_vulnerable round-trip
             verdict = await self.req.submit_fn(str(poc))
             if verdict is None:
@@ -356,6 +372,7 @@ class Dispatcher:
             return "no target functions specified", True
         rc, out = await asyncio.to_thread(
             self._instrumenter().check_coverage, c, str(poc), functions)
+        self.validated_pocs.add(str(poc))   # cleared the submit gate (ran locally)
         # Parse GDB breakpoint info to summarize reachability
         hit = [fn for fn in functions if fn in out]
         not_hit = [fn for fn in functions if fn not in out]

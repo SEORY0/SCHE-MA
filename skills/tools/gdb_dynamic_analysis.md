@@ -5,7 +5,7 @@ type: tool
 availability: instrument_container
 required_package: ~
 requires_tools: [gdb_script, coverage_check]
-triggers: [no_crash, wrong_sink, wrong_crash_type, coverage_unknown]
+triggers: [no_crash, wrong_sink, wrong_crash_type, coverage_unknown, reachability_unknown]
 token_cost: medium
 ---
 <tool_skill name="gdb" availability="instrument_container">

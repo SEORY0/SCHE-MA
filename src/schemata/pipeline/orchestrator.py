@@ -308,6 +308,8 @@ async def run_task(
                 structured = _merge_harness_contract(structured, contract)
             prior[stage] = structured
             submissions.extend(res.artifacts.submissions)
+            for _tname, _tn in (res.artifacts.extra.get("tool_calls") or {}).items():
+                outcome.tool_calls[_tname] = outcome.tool_calls.get(_tname, 0) + _tn
             if res.artifacts.poc_path:
                 winning_poc = res.artifacts.poc_path
 
@@ -441,7 +443,7 @@ async def _discriminate_and_retarget(
         retargets += 1
         outcome.escalated = True
         plan.minimize_info = False
-        plan.stage_models["generate"] = "opus"
+        plan.stage_models["generate"] = settings.model_for("generate", "hard")
         req = build_request(
             "generate", plan, meta, handle, prior, settings, backend_name,
             instrument_container=None,
@@ -451,6 +453,8 @@ async def _discriminate_and_retarget(
         outcome.stages_run.append(f"generate_retarget{retargets}")
         prior["generate"] = gen.structured_output
         submissions.extend(gen.artifacts.submissions)
+        for _tname, _tn in (gen.artifacts.extra.get("tool_calls") or {}).items():
+            outcome.tool_calls[_tname] = outcome.tool_calls.get(_tname, 0) + _tn
         if gen.artifacts.poc_path:
             winning_poc = gen.artifacts.poc_path
         _write_stage(run_dir, f"generate_retarget{retargets}", gen)
@@ -517,7 +521,7 @@ async def _retry_if_no_poc(
     plan.minimize_info = False
     if "analyze" not in plan.stage_models:
         plan.stage_models["analyze"] = settings.model_for("analyze", plan.difficulty)
-    plan.stage_models["generate"] = "opus"
+    plan.stage_models["generate"] = settings.model_for("generate", "hard")
 
     new_winning_poc: str | None = None
     for stage in ("analyze", "generate"):
@@ -533,6 +537,8 @@ async def _retry_if_no_poc(
         outcome.stages_run.append(f"{stage}*")  # marker so the row shows the retry
         prior[stage] = res.structured_output
         submissions.extend(res.artifacts.submissions)
+        for _tname, _tn in (res.artifacts.extra.get("tool_calls") or {}).items():
+            outcome.tool_calls[_tname] = outcome.tool_calls.get(_tname, 0) + _tn
         if res.artifacts.poc_path:
             new_winning_poc = res.artifacts.poc_path
         (run_dir / f"stage_{stage}_retry.json").write_text(json.dumps({

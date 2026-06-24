@@ -18,7 +18,7 @@ from __future__ import annotations
 import logging
 
 from ..core.models import StageRequest
-from .base import MODEL_IDS, alias_of
+from .base import alias_of, model_id_of, spec_of
 
 log = logging.getLogger("schemata.prompt_cache")
 
@@ -43,14 +43,14 @@ def model_params(req: StageRequest, settings) -> dict:
     alias = alias_of(req.model)
     toks = settings.tokens
     params: dict = {
-        "model": MODEL_IDS.get(alias, req.model),
+        "model": model_id_of(alias),
         "max_tokens": int(toks.get("max_output_tokens", 8000)),
     }
     if req.thinking is not None:
         params["thinking"] = {"type": "adaptive"}
         # give adaptive thinking room so a turn isn't truncated mid-thought
         params["max_tokens"] = int(toks.get("max_output_tokens_thinking", 16000))
-        if alias in ("opus", "sonnet"):  # effort errors on Haiku (Recon is the only Haiku stage)
+        if spec_of(alias).supports_effort:  # effort errors on Haiku (Recon is the only Haiku stage)
             params["output_config"] = {"effort": toks.get("effort_hard", "high")}
     return params
 

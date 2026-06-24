@@ -160,19 +160,28 @@ class SkillSelector:
         *,
         has_instrument: bool = False,
         failure_classes: list[str] | None = None,
+        task_properties: list[str] | None = None,
         stage: str = "generate",
     ) -> list[SkillMeta]:
+        """Select tool-skills whose ``triggers`` intersect the active signal set.
+
+        The signal set is ``task_properties`` (proactive, detected up front by
+        analyze) unioned with ``failure_classes`` (reactive, after a reject).
+        When the signal set is empty (no information at all) we fall back to
+        loading every available skill — the old behavior, kept as a safety net.
+        """
         if stage != "generate":
             return []
+        signals = set(task_properties or []) | set(failure_classes or [])
         selected: list[SkillMeta] = []
         for skill in self._reg.tools():
             if not self._available(skill):
                 continue
             if skill.availability == "instrument_container" and not has_instrument:
                 continue
-            # Skill passes availability checks — include it.
-            # Triggers are metadata for future progressive disclosure;
-            # for now all available skills are loaded.
+            # Selective when we have signals: a skill with triggers must match one.
+            if signals and skill.triggers and not (set(skill.triggers) & signals):
+                continue
             selected.append(skill)
         return selected
 
@@ -196,12 +205,26 @@ class SkillSelector:
         *,
         has_instrument: bool = False,
         failure_classes: list[str] | None = None,
+        task_properties: list[str] | None = None,
     ) -> str:
         skills = self.select_tool_skills(
             has_instrument=has_instrument,
             failure_classes=failure_classes,
+            task_properties=task_properties,
         )
+        signals = sorted(set(task_properties or []) | set(failure_classes or []))
         parts: list[str] = []
+        if skills and signals:
+            # Imperative framing: these tools were selected because the task's
+            # detected properties match them — the agent should USE them, not skim.
+            parts.append(
+                "<selected_tools reason=\"task properties: "
+                + ", ".join(signals)
+                + "\">\nThe tools below were selected because this task's detected "
+                "properties match them. USE them for construction/validation — do not "
+                "fall back to ad-hoc byte packing when a matched tool fits.\n"
+                "</selected_tools>"
+            )
         for s in skills:
             body = self._reg.body(s.name)
             if body.strip():

@@ -12,7 +12,7 @@ import json
 import logging
 from pathlib import Path
 
-from ..backends.base import MODEL_IDS, cost_of
+from ..backends.base import cost_of, known_aliases, model_id_of
 from ..core.config import Settings
 from ..core.cost_tracker import CostTracker
 from ..core.models import PipelinePlan, TaskMeta, Usage
@@ -24,7 +24,7 @@ log = logging.getLogger("schemata.routing_agent")
 
 _VALID_DIFFICULTIES = {"easy", "medium", "hard"}
 _VALID_STAGES = {"recon", "analyze", "generate"}
-_VALID_MODELS = {"haiku", "sonnet", "opus"}
+_VALID_MODELS = {"haiku", "sonnet", "opus", "gpt5"}
 _VALID_STRATEGIES = {
     "seed-mutate", "format-skeleton-grow", "fdp-carve", "libfuzzer-minimal",
 }
@@ -41,8 +41,8 @@ harness contract, and metadata, classify the task and choose the optimal pipelin
 ## Pipeline options
 - **stages**: ["recon", "generate"] (skip analyze — for simple, direct bugs) \
 or ["recon", "analyze", "generate"] (full — when localization needs a stronger model)
-- **generate_model**: "sonnet" (cheaper, fast — for standard bugs) or "opus" \
-(expensive, thorough — for complex multi-step bugs, deep format parsing)
+- **generate_model**: "sonnet" (cheaper, fast — for standard bugs) or "gpt5" \
+(strongest, thorough — for complex multi-step bugs, deep format parsing)
 - **thinking**: true (extended reasoning for complex code analysis) or false
 - **instrument**: true (Docker container for local crash validation) or false
 - **minimize_info**: true (lean context, skip knowledge base — for trivial bugs) or false
@@ -65,14 +65,14 @@ protocol layers). Large codebase with deep call chains. Unusual vulnerability pa
 {vuln_menu}
 
 Respond with ONLY a JSON object — no markdown fences, no explanation:
-{{"difficulty":"easy|medium|hard","vuln_classes":["type-id"],"stages":["recon","generate"],"generate_model":"sonnet|opus","thinking":false,"instrument":true,"minimize_info":false,"generate_strategy_hint":"seed-mutate|null","budget_hint":"normal","reasoning":"one line"}}"""
+{{"difficulty":"easy|medium|hard","vuln_classes":["type-id"],"stages":["recon","generate"],"generate_model":"sonnet|gpt5","thinking":false,"instrument":true,"minimize_info":false,"generate_strategy_hint":"seed-mutate|null","budget_hint":"normal","reasoning":"one line"}}"""
 
 _REFINE_SYSTEM = """\
 You are the post-recon pipeline adjuster. Given the current plan and recon results, \
 decide whether to adjust the pipeline. You can:
 - Remove "analyze" from stages (if recon already localized the bug well)
 - Add "analyze" to stages (if recon failed to localize — no suspected files/functions)
-- Change generate_model to "opus" (if the bug looks harder than initially estimated)
+- Change generate_model to "gpt5" (if the bug looks harder than initially estimated)
 - Change budget_hint (if format complexity warrants more turns)
 - Update vuln_classes (if recon's classification differs from pre-pipeline)
 - Update generate_strategy_hint (if recon found seeds or identified harness convention)
@@ -156,7 +156,7 @@ async def _call_haiku(
 
     rcfg = settings.raw.get("routing", {})
     model_alias = rcfg.get("model", "haiku")
-    model_id = MODEL_IDS.get(model_alias, MODEL_IDS["haiku"])
+    model_id = model_id_of(model_alias if model_alias in known_aliases() else "haiku")
     max_tokens = int(rcfg.get("max_tokens", 512))
     timeout = int(rcfg.get("timeout_s", 30))
 

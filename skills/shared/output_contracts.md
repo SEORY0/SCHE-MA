@@ -36,6 +36,7 @@ Stage "analyze" schema:
     "overall_confidence": 0.0
   },
   "vuln_classes": ["ALL applicable atomic-vuln type ids (refine recon's list using the localized sink)"],
+  "task_properties": ["construction-shape tags from the controlled vocabulary: seed_mutation|format_complex|nested_structures|binary_format|flat_binary|integer_packing|flat_text|reachability_unknown|multi_fuzzer"],
   "prioritized_paths": ["ordered attack paths, highest first"],
   "data_flow": ["input byte -> ... -> crash site"],
   "input_constraints": ["constraint on bytes/fields to reach the bug"],
