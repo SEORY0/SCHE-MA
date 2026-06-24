@@ -5,7 +5,7 @@ description: What
 resource: cybergym://strategy/fuzzer
 tags: [fuzzer, reachability_unknown, multi_fuzzer, no_instrument]
 timestamp: 2026-06-24T00:00:00Z
-okf_support: 1
+okf_support: 3
 ---
 ## What
 Run the project's OWN libFuzzer/AFL harness binary as a FUZZER (not single-input) so coverage-guided
@@ -28,7 +28,7 @@ sometimes — the fuzzer finds the canonical minimal reproducer that crashes rel
 - Deep flows need long campaigns; a short run finding nothing means "not yet", not "unreproducible".
 
 ## Observed
-- Support: 1 train-set solves.
-- Winning strategies (observed): {'fuzzer': 1}
-- Format families (observed): {'file-magic': 1}
+- Support: 3 train-set solves.
+- Winning strategies (observed): {'fuzzer': 3}
+- Format families (observed): {'file-magic': 1, 'media-container': 1, 'gps-packet': 1}
 - Abstract sink shapes (observed): use-of-uninitialized-value:?

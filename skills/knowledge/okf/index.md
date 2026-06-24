@@ -20,6 +20,7 @@ Task-agnostic, distilled patterns. Abstract only — no task ids, no concrete of
 - [cff2-font](formats/cff2-font.md)
 - [chunked-image](formats/chunked-image.md)
 - [file-magic](formats/file-magic.md)
+- [gps-packet](formats/gps-packet.md)
 - [json](formats/json.md)
 - [md3-model](formats/md3-model.md)
 - [media-container](formats/media-container.md)
